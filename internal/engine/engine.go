@@ -30,20 +30,28 @@ type Attempt struct {
 	ClientError string `json:"client_error,omitempty"`
 }
 
+type StateCheck struct {
+	Name     string `json:"name"`
+	Baseline int64  `json:"baseline"`
+	Expected int64  `json:"expected"`
+	Observed *int64 `json:"observed,omitempty"`
+}
+
 type Report struct {
-	Name          string    `json:"name"`
-	Scenario      string    `json:"scenario"`
-	RunID         string    `json:"run_id"`
-	Status        string    `json:"status"`
-	StartedAt     string    `json:"started_at"`
-	DurationMS    int64     `json:"duration_ms"`
-	Baseline      *int64    `json:"baseline,omitempty"`
-	Expected      *int64    `json:"expected,omitempty"`
-	Observed      *int64    `json:"observed,omitempty"`
-	FaultInjected bool      `json:"fault_injected"`
-	Attempts      []Attempt `json:"attempts"`
-	Events        []Event   `json:"events"`
-	Error         string    `json:"error,omitempty"`
+	Name          string       `json:"name"`
+	Scenario      string       `json:"scenario"`
+	RunID         string       `json:"run_id"`
+	Status        string       `json:"status"`
+	StartedAt     string       `json:"started_at"`
+	DurationMS    int64        `json:"duration_ms"`
+	Baseline      *int64       `json:"baseline,omitempty"`
+	Expected      *int64       `json:"expected,omitempty"`
+	Observed      *int64       `json:"observed,omitempty"`
+	Checks        []StateCheck `json:"checks,omitempty"`
+	FaultInjected bool         `json:"fault_injected"`
+	Attempts      []Attempt    `json:"attempts"`
+	Events        []Event      `json:"events"`
+	Error         string       `json:"error,omitempty"`
 }
 
 func (r *Report) event(step, detail string) {
@@ -86,20 +94,30 @@ func Run(parent context.Context, c config.Config) (r Report) {
 		r.event("service", "started and ready")
 	}
 
-	baseline, err := observe(ctx, c.Observe)
-	if err != nil {
-		r.Error = fmt.Sprintf("baseline observation: %v", err)
-		return r
+	observations := c.Observations()
+	for _, o := range observations {
+		label := o.Name
+		if label == "" {
+			label = "state"
+		}
+		baseline, err := observe(ctx, o)
+		if err != nil {
+			r.Error = fmt.Sprintf("baseline observation %q: %v", label, err)
+			return r
+		}
+		if (*o.ExpectedDelta > 0 && baseline > math.MaxInt64-*o.ExpectedDelta) ||
+			(*o.ExpectedDelta < 0 && baseline < math.MinInt64-*o.ExpectedDelta) {
+			r.Error = fmt.Sprintf("expected final value overflows int64 for %q", label)
+			return r
+		}
+		expected := baseline + *o.ExpectedDelta
+		r.Checks = append(r.Checks, StateCheck{Name: label, Baseline: baseline, Expected: expected})
+		if len(observations) == 1 {
+			r.Baseline = &baseline
+			r.Expected = &expected
+		}
+		r.event("baseline", fmt.Sprintf("%s: observed %d; expected final value %d", label, baseline, expected))
 	}
-	r.Baseline = &baseline
-	if (*c.Observe.ExpectedDelta > 0 && baseline > math.MaxInt64-*c.Observe.ExpectedDelta) ||
-		(*c.Observe.ExpectedDelta < 0 && baseline < math.MinInt64-*c.Observe.ExpectedDelta) {
-		r.Error = "expected final value overflows int64"
-		return r
-	}
-	expected := baseline + *c.Observe.ExpectedDelta
-	r.Expected = &expected
-	r.event("baseline", fmt.Sprintf("observed %d; expected final value %d", baseline, expected))
 
 	switch c.Scenario {
 	case "lost-response":
@@ -114,16 +132,25 @@ func Run(parent context.Context, c config.Config) (r Report) {
 		return r
 	}
 
-	final, err := observe(ctx, c.Observe)
-	if err != nil {
-		r.Error = fmt.Sprintf("final observation: %v", err)
-		return r
+	var mismatches []string
+	for i, o := range observations {
+		final, err := observe(ctx, o)
+		if err != nil {
+			r.Error = fmt.Sprintf("final observation %q: %v", r.Checks[i].Name, err)
+			return r
+		}
+		r.Checks[i].Observed = &final
+		if len(observations) == 1 {
+			r.Observed = &final
+		}
+		r.event("verify", fmt.Sprintf("%s: expected %d, observed %d", r.Checks[i].Name, r.Checks[i].Expected, final))
+		if final != r.Checks[i].Expected {
+			mismatches = append(mismatches, fmt.Sprintf("%s expected %d, observed %d", r.Checks[i].Name, r.Checks[i].Expected, final))
+		}
 	}
-	r.Observed = &final
-	r.event("verify", fmt.Sprintf("expected %d, observed %d", expected, final))
-	if final != expected {
+	if len(mismatches) > 0 {
 		r.Status = "VIOLATION"
-		r.Error = fmt.Sprintf("state invariant failed: expected %d, observed %d", expected, final)
+		r.Error = "state invariant failed: " + strings.Join(mismatches, "; ")
 	} else {
 		r.Status = "PASS"
 	}
@@ -243,14 +270,28 @@ func send(ctx context.Context, req config.Request, target string) (int, error) {
 	for k, v := range req.Headers {
 		httpReq.Header.Set(k, v)
 	}
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := localClient()
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return 0, err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return resp.StatusCode, fmt.Errorf("read response body: %w", err)
+	}
 	return resp.StatusCode, nil
+}
+
+// Each operation gets a direct, fresh connection. This keeps proxy settings
+// and automatic retries on pooled connections out of the experiment.
+func localClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.DisableKeepAlives = true
+	return &http.Client{
+		Transport:     transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 }
 
 func observe(ctx context.Context, o config.Observation) (int64, error) {
@@ -258,7 +299,10 @@ func observe(ctx context.Context, o config.Observation) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for k, v := range o.Headers {
+		req.Header.Set(k, v)
+	}
+	client := localClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, err
@@ -267,11 +311,27 @@ func observe(ctx context.Context, o config.Observation) (int64, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	dec := json.NewDecoder(io.LimitReader(resp.Body, 1<<20))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	if err != nil {
+		return 0, fmt.Errorf("read observation: %w", err)
+	}
+	if len(data) > 1<<20 {
+		return 0, errors.New("observation exceeds 1 MiB")
+	}
+	if err := rejectDuplicateKeys(data); err != nil {
+		return 0, fmt.Errorf("invalid observation JSON: %w", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	var root any
 	if err := dec.Decode(&root); err != nil {
 		return 0, err
+	}
+	if err := dec.Decode(new(any)); err != io.EOF {
+		if err == nil {
+			return 0, errors.New("observation contains multiple JSON values")
+		}
+		return 0, fmt.Errorf("trailing observation JSON: %w", err)
 	}
 	value, err := atPointer(root, o.Pointer)
 	if err != nil {
@@ -288,12 +348,62 @@ func observe(ctx context.Context, o config.Observation) (int64, error) {
 	return n, nil
 }
 
+func rejectDuplicateKeys(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var scan func() error
+	scan = func() error {
+		token, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		delim, ok := token.(json.Delim)
+		if !ok {
+			return nil
+		}
+		switch delim {
+		case '{':
+			seen := map[string]bool{}
+			for dec.More() {
+				keyToken, err := dec.Token()
+				if err != nil {
+					return err
+				}
+				key, ok := keyToken.(string)
+				if !ok {
+					return errors.New("object member name is not a string")
+				}
+				if seen[key] {
+					return fmt.Errorf("duplicate object member %q", key)
+				}
+				seen[key] = true
+				if err := scan(); err != nil {
+					return err
+				}
+			}
+			_, err := dec.Token()
+			return err
+		case '[':
+			for dec.More() {
+				if err := scan(); err != nil {
+					return err
+				}
+			}
+			_, err := dec.Token()
+			return err
+		default:
+			return errors.New("unexpected closing delimiter")
+		}
+	}
+	return scan()
+}
+
 func atPointer(root any, pointer string) (any, error) {
+	if !config.ValidJSONPointer(pointer) {
+		return nil, errors.New("invalid RFC 6901 JSON pointer")
+	}
 	if pointer == "" {
 		return root, nil
-	}
-	if !strings.HasPrefix(pointer, "/") {
-		return nil, errors.New("JSON pointer must start with /")
 	}
 	current := root
 	for _, part := range strings.Split(pointer[1:], "/") {
@@ -306,6 +416,14 @@ func atPointer(root any, pointer string) (any, error) {
 			}
 			current = value
 		case []any:
+			if part == "" || (len(part) > 1 && part[0] == '0') {
+				return nil, fmt.Errorf("JSON pointer %q: invalid array index %q", pointer, part)
+			}
+			for _, digit := range part {
+				if digit < '0' || digit > '9' {
+					return nil, fmt.Errorf("JSON pointer %q: invalid array index %q", pointer, part)
+				}
+			}
 			index, err := strconv.Atoi(part)
 			if err != nil || index < 0 || index >= len(node) {
 				return nil, fmt.Errorf("JSON pointer %q: invalid array index %q", pointer, part)

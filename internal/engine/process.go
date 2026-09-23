@@ -52,7 +52,8 @@ func (p *process) Start(parent context.Context) error {
 		return fmt.Errorf("service is already started")
 	}
 	// A pre-existing service must not be mistaken for the child we are starting.
-	preflight := &http.Client{Timeout: 300 * time.Millisecond, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	preflight := localClient()
+	preflight.Timeout = 300 * time.Millisecond
 	if req, err := http.NewRequestWithContext(parent, http.MethodGet, p.config.ReadyURL, nil); err == nil {
 		if resp, err := preflight.Do(req); err == nil {
 			_ = resp.Body.Close()
@@ -93,7 +94,8 @@ func (p *process) Start(parent context.Context) error {
 	go func() { _ = cmd.Wait(); close(done) }()
 	readyCtx, cancel := context.WithTimeout(parent, p.config.StartupDuration())
 	defer cancel()
-	client := &http.Client{Timeout: 500 * time.Millisecond, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := localClient()
+	client.Timeout = 500 * time.Millisecond
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
