@@ -225,7 +225,7 @@ func runLostResponse(ctx context.Context, request config.Request, r *Report) err
 	if retryErr != nil {
 		return fmt.Errorf("retry request: %w", retryErr)
 	}
-	r.event("retry", fmt.Sprintf("resent the same method, body, and idempotency key; HTTP %d", retryStatus))
+	r.event("retry", fmt.Sprintf("resent the same method, URL, body, and configured headers; HTTP %d", retryStatus))
 	return nil
 }
 

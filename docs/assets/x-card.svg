@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" role="img" aria-labelledby="title desc">
+  <title id="title">RecoveryLab: one lost reply, two writes</title>
+  <desc id="desc">A static launch card showing RecoveryLab's built-in lost-response demo: the correct fixture writes once, while the deliberately buggy fixture writes twice after a retry.</desc>
+  <rect width="1200" height="600" fill="#0b0f16"/>
+  <rect x="0" y="0" width="14" height="600" fill="#58a6ff"/>
+  <rect x="48" y="42" width="54" height="54" rx="12" fill="#152b43"/>
+  <path d="M65 70h20m0 0-7-7m7 7-7 7" fill="none" stroke="#58a6ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="120" y="78" fill="#c9d1d9" font-family="Segoe UI, sans-serif" font-size="25" font-weight="700" letter-spacing="2">RECOVERYLAB</text>
+  <text x="48" y="168" fill="#f0f6fc" font-family="Segoe UI, sans-serif" font-size="56" font-weight="700">One lost reply. Two writes.</text>
+  <text x="50" y="214" fill="#9daab8" font-family="Segoe UI, sans-serif" font-size="23">A Go CLI that checks what a retry actually did to your data.</text>
+  <rect x="48" y="259" width="1104" height="265" rx="14" fill="#111821" stroke="#303d4d" stroke-width="2"/>
+  <circle cx="80" cy="289" r="5" fill="#f85149"/>
+  <circle cx="100" cy="289" r="5" fill="#d29922"/>
+  <circle cx="120" cy="289" r="5" fill="#3fb950"/>
+  <text x="600" y="297" text-anchor="middle" fill="#8493a5" font-family="Segoe UI, sans-serif" font-size="16">built-in demo · lost-response case</text>
+  <line x1="48" y1="317" x2="1152" y2="317" stroke="#303d4d"/>
+  <g font-family="Consolas, ui-monospace, monospace" font-size="21">
+    <text x="78" y="359" fill="#8b949e">$ <tspan fill="#e6edf3">recoverylab demo</tspan></text>
+    <text x="78" y="403" fill="#c9d1d9">A write succeeds, its reply vanishes, and the client retries.</text>
+    <text x="78" y="451" fill="#c9d1d9">Lost response: correct <tspan fill="#3fb950">PASS 1/1</tspan> | duplicate bug <tspan fill="#ffa657">VIOLATION 2/1</tspan></text>
+    <text x="78" y="493" fill="#8493a5">observed / expected writes</text>
+  </g>
+  <text x="49" y="568" fill="#9daab8" font-family="Segoe UI, sans-serif" font-size="19">Local HTTP failure testing · No Docker needed for the demo</text>
+</svg>

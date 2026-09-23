@@ -16,20 +16,21 @@ With [Go 1.23+](https://go.dev/dl/) installed, run this from the repository root
 go run ./cmd/recoverylab demo
 ```
 
-The demo starts its own services. It needs no Docker, account, or API key. Three services are healthy; three have deliberate bugs:
+The demo starts its own services. It needs no Docker, account, or API key. It compares three healthy fixtures with three deliberately broken ones:
 
 ```text
-correct/lost-response                  PASS       expected=PASS  state=1/1
-duplicate-bug/lost-response            VIOLATION  expected=VIOLATION  state=2/1
-correct/concurrent-duplicates          PASS       expected=PASS  state=1/1
-race-bug/concurrent-duplicates         VIOLATION  expected=VIOLATION  state=16/1
-correct/crash-after-ack                PASS       expected=PASS  state=1/1
-early-ack-bug/crash-after-ack          VIOLATION  expected=VIOLATION  state=0/1
+A write succeeds, its reply vanishes, and the client retries. (observed/expected)
+Lost response: correct PASS 1/1 | duplicate bug VIOLATION 2/1
+16 requests at once: correct PASS 1/1 | race bug VIOLATION 16/1
+Crash after 2xx: correct PASS 1/1 | early ack bug VIOLATION 0/1
+Demo passed: 3 healthy cases held; 3 injected defects were detected.
 ```
 
-For example, `duplicate-bug/lost-response` reports `state=2/1`: two writes occurred when the expected result was one. A `VIOLATION` is the *correct* result for that buggy fixture.
+The numbers are observed/expected state values. `VIOLATION 2/1` means two writes occurred when the scenario expected one. A `VIOLATION` is the *correct* result for a deliberately buggy fixture.
 
 The fixture makes its race and early-ack bugs repeatable. That demonstrates how the checks work; it does not predict how often a run will expose a bug in your service.
+
+In a separate check, RecoveryLab ran against [NetCore](https://github.com/Wali05/NetCore), a Spring Boot service using an in-memory H2 database. After its `allocate-next` endpoint returned 200 but the reply was dropped, a retry raised the allocated-address count from 0 to 2. RecoveryLab reported `VIOLATION` for a scenario expecting one allocation. [The check and its limits](docs/independent-check.md) explain exactly what this shows.
 
 ## Install
 

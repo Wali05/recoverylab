@@ -1,35 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="452" viewBox="0 0 1200 452" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
   <title id="title">RecoveryLab demo terminal output</title>
-  <desc id="desc">The built-in demo reports three healthy cases passing and detects duplicate writes, a race, and a lost durable write in three intentionally buggy cases.</desc>
-  <rect width="1200" height="452" rx="18" fill="#0d1117"/>
-  <rect x="1" y="1" width="1198" height="450" rx="17" fill="none" stroke="#30363d" stroke-width="2"/>
+  <desc id="desc">A lost reply leads to a retry. The demo shows three healthy fixture cases holding and three deliberately injected defects detected.</desc>
+  <rect width="1200" height="360" rx="18" fill="#0d1117"/>
+  <rect x="1" y="1" width="1198" height="358" rx="17" fill="none" stroke="#30363d" stroke-width="2"/>
   <circle cx="34" cy="32" r="7" fill="#f85149"/>
   <circle cx="59" cy="32" r="7" fill="#d29922"/>
   <circle cx="84" cy="32" r="7" fill="#3fb950"/>
   <text x="600" y="38" text-anchor="middle" fill="#8b949e" font-family="Segoe UI, sans-serif" font-size="17">RecoveryLab · built-in demo</text>
   <line x1="1" y1="60" x2="1199" y2="60" stroke="#30363d"/>
-  <g font-family="Consolas, ui-monospace, monospace" font-size="21">
-    <text x="34" y="103" fill="#8b949e">$</text>
-    <text x="58" y="103" fill="#e6edf3">recoverylab demo</text>
-    <text x="34" y="150" fill="#c9d1d9">correct/lost-response</text>
-    <text x="710" y="150" fill="#3fb950">PASS</text>
-    <text x="938" y="150" fill="#8b949e">state=1/1</text>
-    <text x="34" y="191" fill="#c9d1d9">duplicate-bug/lost-response</text>
-    <text x="710" y="191" fill="#ffa657">VIOLATION</text>
-    <text x="938" y="191" fill="#ffa657">state=2/1</text>
-    <text x="34" y="232" fill="#c9d1d9">correct/concurrent-duplicates</text>
-    <text x="710" y="232" fill="#3fb950">PASS</text>
-    <text x="938" y="232" fill="#8b949e">state=1/1</text>
-    <text x="34" y="273" fill="#c9d1d9">race-bug/concurrent-duplicates</text>
-    <text x="710" y="273" fill="#ffa657">VIOLATION</text>
-    <text x="938" y="273" fill="#ffa657">state=16/1</text>
-    <text x="34" y="314" fill="#c9d1d9">correct/crash-after-ack</text>
-    <text x="710" y="314" fill="#3fb950">PASS</text>
-    <text x="938" y="314" fill="#8b949e">state=1/1</text>
-    <text x="34" y="355" fill="#c9d1d9">early-ack-bug/crash-after-ack</text>
-    <text x="710" y="355" fill="#ffa657">VIOLATION</text>
-    <text x="938" y="355" fill="#ffa657">state=0/1</text>
+  <g font-family="Consolas, ui-monospace, monospace" font-size="19">
+    <text x="34" y="105" fill="#8b949e">$ <tspan fill="#e6edf3">recoverylab demo</tspan></text>
+    <text x="34" y="151" fill="#c9d1d9">A write succeeds, its reply vanishes, and the client retries. <tspan fill="#8b949e">(observed/expected)</tspan></text>
+    <text x="34" y="192" fill="#c9d1d9">Lost response: correct <tspan fill="#3fb950">PASS 1/1</tspan> | duplicate bug <tspan fill="#ffa657">VIOLATION 2/1</tspan></text>
+    <text x="34" y="233" fill="#c9d1d9">16 requests at once: correct <tspan fill="#3fb950">PASS 1/1</tspan> | race bug <tspan fill="#ffa657">VIOLATION 16/1</tspan></text>
+    <text x="34" y="274" fill="#c9d1d9">Crash after 2xx: correct <tspan fill="#3fb950">PASS 1/1</tspan> | early ack bug <tspan fill="#ffa657">VIOLATION 0/1</tspan></text>
+    <text x="34" y="326" fill="#3fb950">Demo passed: 3 healthy cases held; 3 injected defects were detected.</text>
   </g>
-  <line x1="34" y1="383" x2="1166" y2="383" stroke="#30363d"/>
-  <text x="34" y="417" fill="#8b949e" font-family="Segoe UI, sans-serif" font-size="18">Fixture run: the three violations are intentional bugs detected by the tool.</text>
 </svg>

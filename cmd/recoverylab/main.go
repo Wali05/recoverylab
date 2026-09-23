@@ -242,6 +242,7 @@ func demo(args []string) int {
 		{"early-ack-bug", "crash-after-ack", "VIOLATION"},
 	}
 	allGood := true
+	reports := make([]engine.Report, len(cases))
 	for i, item := range cases {
 		addr, err := freeAddress()
 		if err != nil {
@@ -261,24 +262,32 @@ func demo(args []string) int {
 			c.Concurrency = 0
 		}
 		r := engine.Run(context.Background(), c)
-		fmt.Printf("%-38s %-10s expected=%s", r.Name, r.Status, item.want)
-		if r.Expected != nil && r.Observed != nil {
-			fmt.Printf("  state=%d/%d", *r.Observed, *r.Expected)
-		}
-		fmt.Println()
+		reports[i] = r
 		if r.Status != item.want {
 			allGood = false
+			fmt.Fprintf(os.Stderr, "%s: got %s, expected %s\n", r.Name, r.Status, item.want)
 			if r.Error != "" {
-				fmt.Println("  ", r.Error)
+				fmt.Fprintln(os.Stderr, "  ", r.Error)
 			}
 		}
 	}
+	fmt.Println("A write succeeds, its reply vanishes, and the client retries. (observed/expected)")
+	fmt.Printf("Lost response: correct %s | duplicate bug %s\n", demoResult(reports[0]), demoResult(reports[1]))
+	fmt.Printf("16 requests at once: correct %s | race bug %s\n", demoResult(reports[2]), demoResult(reports[3]))
+	fmt.Printf("Crash after 2xx: correct %s | early ack bug %s\n", demoResult(reports[4]), demoResult(reports[5]))
 	if !allGood {
-		fmt.Fprintln(os.Stderr, "Demo did not meet its expected outcomes.")
+		fmt.Fprintln(os.Stderr, "Demo failed: at least one fixture missed its expected outcome.")
 		return 1
 	}
-	fmt.Println("\nDemo passed: healthy cases held; duplicate, race, and durability defects were detected.")
+	fmt.Println("Demo passed: 3 healthy cases held; 3 injected defects were detected.")
 	return 0
+}
+
+func demoResult(r engine.Report) string {
+	if r.Observed == nil || r.Expected == nil {
+		return r.Status
+	}
+	return fmt.Sprintf("%s %d/%d", r.Status, *r.Observed, *r.Expected)
 }
 
 func serveFixture(args []string) int {
