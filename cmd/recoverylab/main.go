@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -32,7 +33,7 @@ func run(args []string) int {
 		usage()
 		return 0
 	case "version", "--version":
-		fmt.Println("RecoveryLab", version)
+		fmt.Println("RecoveryLab", currentVersion())
 		return 0
 	case "run":
 		return runFile(args[1:])
@@ -47,6 +48,16 @@ func run(args []string) int {
 		usage()
 		return 2
 	}
+}
+
+func currentVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return strings.TrimPrefix(info.Main.Version, "v")
+	}
+	return version
 }
 
 func usage() {
