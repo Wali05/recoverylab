@@ -41,7 +41,7 @@ go install github.com/Wali05/recoverylab/cmd/recoverylab@latest
 recoverylab demo
 ```
 
-You can also [download a release binary](https://github.com/Wali05/recoverylab/releases) for Windows, macOS, or Linux once a release is published. Put it on your `PATH` (`recoverylab.exe` on Windows). Releases include SHA-256 checksums; binaries are currently unsigned.
+You can also [download the latest release](https://github.com/Wali05/recoverylab/releases/latest) for Windows, macOS, or Linux. Rename the file to `recoverylab` (`recoverylab.exe` on Windows), make it executable on macOS/Linux with `chmod +x recoverylab`, and put it on your `PATH`. Releases include SHA-256 checksums; binaries are currently unsigned.
 
 To build from a checkout, run `go build -o recoverylab ./cmd/recoverylab` (`go build -o recoverylab.exe ./cmd/recoverylab` on Windows).
 
