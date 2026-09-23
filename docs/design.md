@@ -1,6 +1,6 @@
 # Design notes
 
-RecoveryLab is a **black-box experiment runner**. It has no access to the target service's internal database or business rules. The scenario author supplies one or more observable integers that represent effects being tested. Its verdict checks only those declared invariants in one run.
+RecoveryLab tests a service from the outside. It cannot see the service's database or business rules, so you tell it which state values to check. A result applies only to those values and that run.
 
 ## Lost response
 
@@ -19,11 +19,11 @@ RecoveryLab client       local fault proxy           service
 
 The proxy accepts exactly one client operation. It reads the complete client request body, sends the same operation upstream, consumes the upstream response, and then hijacks and closes the client connection before sending any HTTP response. The runner only calls this a successfully injected fault when the upstream acknowledged with a 2xx status and the client observed a connection error. A failed upstream request or a failed proxy injection is an `ERROR`, not a correctness verdict.
 
-The retry reuses the **same method, URL, body, and headers**, including the idempotency key. The request can include `{{run_id}}`, resolved once before the experiment, so runs do not collide with one another.
+The retry reuses the **same method, URL, body, and headers**. If you include an idempotency key, it reuses that too. You can put `{{run_id}}` in the request; RecoveryLab fills it in once before the experiment so separate runs do not share a key.
 
 ## Concurrent duplicates
 
-The runner creates N goroutines, each holding the same request until a shared start channel closes. It records each HTTP status. The overlap is a best-effort local experiment; an external scheduler cannot guarantee that every handler reaches a particular code line simultaneously. The fixture deliberately pauses between its key check and write so the demo reproduces that race reliably.
+The runner starts one goroutine per request, then releases them together. It records each HTTP status. This makes the requests overlap, but it cannot force the target handlers to reach the same line of code at the same moment. The built-in test server pauses between checking a key and writing state so the demo can reproduce the race.
 
 `run --repeat N` executes separate experiments with fresh run IDs. It helps reveal intermittent failures but does not coordinate arrival inside the target handler or guarantee discovery of a narrow race.
 
@@ -47,7 +47,7 @@ Each invariant is `final integer = baseline integer + expected_delta`. `PASS` me
 
 Even several final counts cannot distinguish every incorrect history. A service could create and later delete duplicate records, or mutate an unobserved field. Choose checks that directly reflect the effects of interest, such as both payment and ledger-entry counts. Keep the target isolated from other writers while the experiment runs; otherwise unrelated writes can change the observed values.
 
-Retry and concurrent response codes are reported but do not currently determine the verdict. Services can choose different duplicate-response policies, while the side-effect invariant is specified by the scenario author. `PASS` therefore says nothing about whether those response codes met your API contract. A future version could make accepted statuses part of the scenario contract.
+RecoveryLab reports the HTTP codes from retries and concurrent requests, but your state check decides `PASS` or `VIOLATION`. Services handle duplicate responses differently, so a `PASS` does not tell you whether the response codes matched your API contract.
 
 ## Failure handling
 

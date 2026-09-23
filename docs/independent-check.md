@@ -1,8 +1,8 @@
 # Check against a separate service
 
-On 23 September 2026, RecoveryLab was run against [NetCore at commit `e299c45`](https://github.com/Wali05/NetCore/tree/e299c45). NetCore is a separate Spring Boot IP address management application. This check used its local, in-memory H2 profile; it did not modify NetCore's source or a persistent database.
+On 23 September 2026, I ran RecoveryLab against [NetCore at commit `e299c45`](https://github.com/Wali05/NetCore/tree/e299c45), a separate Spring Boot app for managing IP addresses. NetCore used its local, in-memory H2 database. I did not change its code or any persistent data.
 
-The setup started a clean NetCore process on a free loopback port, then made these requests:
+I started a fresh NetCore process on a free loopback port and made these requests:
 
 | Request | JSON body |
 | --- | --- |
@@ -10,7 +10,7 @@ The setup started a clean NetCore process on a free loopback port, then made the
 | `POST /api/v1/devices` | `{"name":"retry-check","type":"ROUTER"}` |
 | `POST /api/v1/devices/{deviceId}/interfaces` | `{"name":"eth0","macAddress":"02:00:00:00:00:42"}` |
 
-The subnet initially had zero allocated addresses. RecoveryLab then tested `POST /api/v1/subnets/{id}/allocate-next` with the `lost-response` scenario. It read `/totalElements` from NetCore's `GET /api/v1/subnets/{id}/addresses?status=ALLOCATED` response and expected one new allocation.
+The subnet started with zero allocated addresses. RecoveryLab then tested `POST /api/v1/subnets/{id}/allocate-next` with the `lost-response` scenario. It read `/totalElements` from NetCore's `GET /api/v1/subnets/{id}/addresses?status=ALLOCATED` response and expected one new allocation.
 
 The scenario was equivalent to this JSON, with the loopback port and IDs filled in from the running service:
 
@@ -43,4 +43,4 @@ Replace `PORT`, `SUBNET_ID`, and `1` with the port and IDs returned during setup
 | Allocated addresses after | 2 |
 | RecoveryLab verdict | `VIOLATION`, exit code 1; expected final count 1 |
 
-This confirms that RecoveryLab can run the lost-response experiment against another HTTP application and detect a state change after a retry. It also shows that this particular NetCore endpoint allocated two addresses in this setup. The endpoint does not promise idempotency, so the result is **not** evidence that NetCore broke its documented contract. It is a concrete example of the behavior a client must account for when retrying an allocation after an ambiguous response.
+RecoveryLab detected the extra allocation in a separate HTTP app. NetCore does not promise idempotency for this endpoint, so two allocations do not break its documented contract. The result shows what a client can run into if it retries after losing the first response.

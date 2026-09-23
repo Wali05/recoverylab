@@ -4,7 +4,7 @@
 
 Imagine your API creates an order and sends `200 OK`, but the response disappears on the way back. The client retries. RecoveryLab recreates that moment, then checks whether the order was created once or twice.
 
-It also tests a burst of duplicate requests and a process crash after a successful response. RecoveryLab works with any local HTTP service that exposes the state you want to check. It judges the observed side effect, not just the HTTP status.
+It can also send duplicate requests at the same time or restart your service after a process crash. RecoveryLab checks what changed in the state your local HTTP service exposes, instead of trusting the HTTP status alone.
 
 ![Terminal preview of the six built-in RecoveryLab demo cases](docs/assets/demo.png)
 
@@ -16,7 +16,7 @@ With [Go 1.23+](https://go.dev/dl/) installed, run this from the repository root
 go run ./cmd/recoverylab demo
 ```
 
-The demo starts its own services. It needs no Docker, account, or API key. It compares three healthy fixtures with three deliberately broken ones:
+The demo starts its own test servers. You don't need Docker, an account, or an API key. For each failure, it shows a server that handles it correctly and one with a deliberate bug:
 
 ```text
 A write succeeds, its reply vanishes, and the client retries. (observed/expected)
@@ -28,9 +28,9 @@ Demo passed: 3 healthy cases held; 3 injected defects were detected.
 
 The numbers are observed/expected state values. `VIOLATION 2/1` means two writes occurred when the scenario expected one. A `VIOLATION` is the *correct* result for a deliberately buggy fixture.
 
-The fixture makes its race and early-ack bugs repeatable. That demonstrates how the checks work; it does not predict how often a run will expose a bug in your service.
+The built-in servers make those bugs easy to reproduce. A race in your own service may take several runs to catch.
 
-In a separate check, RecoveryLab ran against [NetCore](https://github.com/Wali05/NetCore), a Spring Boot service using an in-memory H2 database. After its `allocate-next` endpoint returned 200 but the reply was dropped, a retry raised the allocated-address count from 0 to 2. RecoveryLab reported `VIOLATION` for a scenario expecting one allocation. [The check and its limits](docs/independent-check.md) explain exactly what this shows.
+I also tried it on [NetCore](https://github.com/Wali05/NetCore), a separate Spring Boot app using an in-memory H2 database. RecoveryLab hid a successful `allocate-next` response and retried the request. The allocation count went from 0 to 2. NetCore doesn't promise idempotency for that endpoint, but the result shows why a client needs to think carefully before retrying it. [Here's the full check](docs/independent-check.md).
 
 ## Install
 
@@ -41,9 +41,9 @@ go install github.com/Wali05/recoverylab/cmd/recoverylab@latest
 recoverylab demo
 ```
 
-You can also [download the latest release](https://github.com/Wali05/recoverylab/releases/latest) for Windows, macOS, or Linux. Rename the file to `recoverylab` (`recoverylab.exe` on Windows), make it executable on macOS/Linux with `chmod +x recoverylab`, and put it on your `PATH`. Releases include SHA-256 checksums; binaries are currently unsigned.
+Or [download the latest release](https://github.com/Wali05/recoverylab/releases/latest) for Windows, macOS, or Linux. Rename the file to `recoverylab` (`recoverylab.exe` on Windows) and put it on your `PATH`. On macOS and Linux, run `chmod +x recoverylab` first. The release includes SHA-256 checksums. The binaries aren't signed.
 
-To build from a checkout, run `go build -o recoverylab ./cmd/recoverylab` (`go build -o recoverylab.exe ./cmd/recoverylab` on Windows).
+If you'd rather build it yourself, run `go build -o recoverylab ./cmd/recoverylab` from the repo (`go build -o recoverylab.exe ./cmd/recoverylab` on Windows).
 
 ## What it tests
 
@@ -87,7 +87,7 @@ go run ./cmd/recoverylab validate scenario.json
 go run ./cmd/recoverylab run scenario.json
 ```
 
-`{{run_id}}` is replaced once per run, so the original request and retry share a key, while a later run gets a fresh one. Put it in the idempotency key, URL, or JSON body wherever your service identifies an operation. The observation must reflect the side effect you care about; for example, an order count can reveal duplicate orders, while an HTTP 200 alone cannot.
+`{{run_id}}` is replaced once per run, so the original request and retry share a key, while the next run gets a fresh one. Put it in the idempotency key, URL, or JSON body wherever your service identifies an operation. Make sure the state endpoint measures the thing you care about: an order count can reveal duplicate orders, while an HTTP 200 alone cannot.
 
 If the state endpoint needs authentication, add `"headers": { "Authorization": "Bearer ..." }` inside `observe`. Keep credentials out of files you commit.
 
