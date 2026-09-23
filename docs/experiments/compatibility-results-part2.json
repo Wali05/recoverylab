@@ -1,0 +1,1097 @@
+{
+  "date": "2026-09-24",
+  "recoverylab_version": "v0.1.2",
+  "binary_sha256": "d65efa2060cd80f0b4bfd114dad0f149f37ee781ebe435efc10dc0c1afff5bb3",
+  "scenario": "lost-response",
+  "expected_delta": 1,
+  "runs": [
+    {
+      "repo": "a2rp/express-project-07-simple-crud-api",
+      "commit": "53859ce3265fc2ebcd3c026fd2ad1284c7267753",
+      "stack": "Express",
+      "working_directory": ".",
+      "start": [
+        "node",
+        "index.js"
+      ],
+      "environment": {},
+      "prestart": [],
+      "setup": [],
+      "request": {
+        "path": "/notes",
+        "body": {
+          "title": "rl-{{run_id}}",
+          "content": "RecoveryLab test"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/notes",
+        "list_pointer": "/data"
+      },
+      "before": 2,
+      "expected": 3,
+      "direct_after": 4,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "AbohEbim-II/ExpressProductApi",
+      "commit": "1b0bd4b88315c031a73228b5ece3d5907e526294",
+      "stack": "Express",
+      "working_directory": ".",
+      "start": [
+        "node",
+        "server.js"
+      ],
+      "environment": {
+        "PORT": "{port}"
+      },
+      "prestart": [],
+      "setup": [],
+      "request": {
+        "path": "/products/",
+        "body": {
+          "id": 987654321,
+          "name": "rl-{{run_id}}",
+          "price": 1.5
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/products/",
+        "list_pointer": ""
+      },
+      "before": 2,
+      "expected": 3,
+      "direct_after": 3,
+      "upstream_http": 201,
+      "retry_http": 409,
+      "verdict": "PASS",
+      "exit_code": 0
+    },
+    {
+      "repo": "alex-arriaga/node-js-restful-api-example",
+      "commit": "1758f866ee904c7765265340b9c2723788eb2ee2",
+      "stack": "Express",
+      "working_directory": ".",
+      "start": [
+        "node",
+        "server/server.js"
+      ],
+      "environment": {},
+      "prestart": [],
+      "setup": [],
+      "request": {
+        "path": "/events/",
+        "body": {
+          "name": "rl-{{run_id}}"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/events/",
+        "list_pointer": ""
+      },
+      "before": 12,
+      "expected": 13,
+      "direct_after": 14,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "amna-mohsin/express-memory-crud",
+      "commit": "ce5cb4b35d089ede0fa8471f48007899993376a6",
+      "stack": "Express",
+      "working_directory": ".",
+      "start": [
+        "node",
+        "index.js"
+      ],
+      "environment": {},
+      "prestart": [],
+      "setup": [],
+      "request": {
+        "path": "/users",
+        "body": {
+          "name": "rl-{{run_id}}"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/users",
+        "list_pointer": ""
+      },
+      "before": 4,
+      "expected": 5,
+      "direct_after": 6,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "antoniozgombadev/flask-task-manager-api",
+      "commit": "caa3c4bf5da17a253aa6e5cfcce47aab47e6994d",
+      "stack": "Flask",
+      "working_directory": ".",
+      "start": [
+        "python",
+        "-m",
+        "flask",
+        "--app",
+        "app",
+        "run",
+        "--host=127.0.0.1",
+        "--port={port}",
+        "--no-reload"
+      ],
+      "environment": {},
+      "prestart": [
+        [
+          "python",
+          "-c",
+          "from app import init_db; init_db()"
+        ]
+      ],
+      "setup": [],
+      "request": {
+        "path": "/api/tasks",
+        "body": {
+          "title": "rl-{{run_id}}"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/api/tasks",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "Anyel-ec/API_REST-Flask-SQLite-Docker",
+      "commit": "9e7e1a834d89536660218ef0a770cee288c3df1c",
+      "stack": "Flask",
+      "working_directory": ".",
+      "start": [
+        "python",
+        "-m",
+        "flask",
+        "--app",
+        "app",
+        "run",
+        "--host=127.0.0.1",
+        "--port={port}",
+        "--no-reload"
+      ],
+      "environment": {},
+      "prestart": [
+        [
+          "python",
+          "-c",
+          "from app import app,db; ctx=app.app_context(); ctx.push(); db.create_all(); ctx.pop()"
+        ]
+      ],
+      "setup": [],
+      "request": {
+        "path": "/productos",
+        "body": {
+          "nombre": "rl-{{run_id}}",
+          "precio": 1.5
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/productos",
+        "list_pointer": "/productos"
+      },
+      "before": 1,
+      "expected": 2,
+      "direct_after": 3,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "AtharvaGhongade/flask-crud-api",
+      "commit": "17915a812654419e31cb4f7d692aedb4733a1f8b",
+      "stack": "Flask",
+      "working_directory": ".",
+      "start": [
+        "python",
+        "-m",
+        "flask",
+        "--app",
+        "app",
+        "run",
+        "--host=127.0.0.1",
+        "--port={port}",
+        "--no-reload"
+      ],
+      "environment": {},
+      "prestart": [
+        [
+          "python",
+          "-c",
+          "import app; app.init_db()"
+        ]
+      ],
+      "setup": [],
+      "request": {
+        "path": "/books",
+        "body": {
+          "title": "rl-{{run_id}}",
+          "author": "test",
+          "price": 1.5
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/books",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "bezkoder/spring-boot-h2-database-crud",
+      "commit": "f02813e2b6c9efc3729663ed783f88db5bb8249e",
+      "stack": "Spring",
+      "working_directory": ".",
+      "start": [
+        "java",
+        "-jar",
+        "target/spring-boot-jpa-h2-0.0.1-SNAPSHOT.jar",
+        "--server.address=127.0.0.1",
+        "--server.port={port}",
+        "--spring.datasource.url=jdbc:h2:mem:rl1;DB_CLOSE_DELAY=-1"
+      ],
+      "environment": {},
+      "prestart": [],
+      "setup": [
+        {
+          "path": "/api/tutorials",
+          "body": {
+            "title": "baseline",
+            "description": "baseline"
+          }
+        }
+      ],
+      "request": {
+        "path": "/api/tutorials",
+        "body": {
+          "title": "rl-{{run_id}}",
+          "description": "RecoveryLab test"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/api/tutorials",
+        "list_pointer": ""
+      },
+      "before": 1,
+      "expected": 2,
+      "direct_after": 3,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "bezkoder/spring-boot-jdbctemplate-crud-example",
+      "commit": "e1c431888c7ff7cd346e0df6946c4dc74f40e947",
+      "stack": "Spring",
+      "working_directory": ".",
+      "start": [
+        "java",
+        "-jar",
+        "target/spring-boot-jdbctemplate-crud-example-0.0.1-SNAPSHOT.jar",
+        "--server.address=127.0.0.1",
+        "--server.port={port}",
+        "--spring.datasource.url=jdbc:h2:mem:rl2;DB_CLOSE_DELAY=-1",
+        "--spring.sql.init.mode=always",
+        "--spring.sql.init.schema-locations=file:<absolute-path>/java02-schema.sql"
+      ],
+      "environment": {},
+      "prestart": [],
+      "setup": [
+        {
+          "path": "/api/tutorials",
+          "body": {
+            "title": "baseline",
+            "description": "baseline"
+          }
+        }
+      ],
+      "request": {
+        "path": "/api/tutorials",
+        "body": {
+          "title": "rl-{{run_id}}",
+          "description": "RecoveryLab test"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/api/tutorials",
+        "list_pointer": ""
+      },
+      "before": 1,
+      "expected": 2,
+      "direct_after": 3,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "bezkoder/spring-boot-r2dbc-h2-example",
+      "commit": "eacf4822ac41a97bfbfbf0c5cbc2f50fd2180271",
+      "stack": "Spring",
+      "working_directory": ".",
+      "start": [
+        "java",
+        "-jar",
+        "target/spring-boot-r2dbc-h2-example-0.0.1-SNAPSHOT.jar",
+        "--server.address=127.0.0.1",
+        "--server.port={port}"
+      ],
+      "environment": {},
+      "prestart": [],
+      "setup": [],
+      "request": {
+        "path": "/api/tutorials",
+        "body": {
+          "title": "rl-{{run_id}}",
+          "description": "RecoveryLab test"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/api/tutorials",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "bezkoder/spring-data-rest-example",
+      "commit": "4d05d6b43cac97c6459be9f6a382977a483b0d48",
+      "stack": "Spring",
+      "working_directory": ".",
+      "start": [
+        "java",
+        "-jar",
+        "target/spring-data-rest-0.0.1-SNAPSHOT.jar",
+        "--server.address=127.0.0.1",
+        "--server.port={port}",
+        "--spring.datasource.url=jdbc:h2:mem:rl4;DB_CLOSE_DELAY=-1"
+      ],
+      "environment": {},
+      "prestart": [],
+      "setup": [
+        {
+          "path": "/api/tutorials",
+          "body": {
+            "title": "baseline",
+            "description": "baseline",
+            "published": false
+          }
+        }
+      ],
+      "request": {
+        "path": "/api/tutorials",
+        "body": {
+          "title": "rl-{{run_id}}",
+          "description": "RecoveryLab test",
+          "published": false
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/api/tutorials",
+        "list_pointer": "/_embedded/tutorials"
+      },
+      "before": 1,
+      "expected": 2,
+      "direct_after": 3,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "codebysaadbouh/-efrei-mdfs-python-alexandry",
+      "commit": "fdd9fe6f81c3c3f805bdece2ab79cc8676b817a5",
+      "stack": "Flask",
+      "working_directory": ".",
+      "start": [
+        "python",
+        "-m",
+        "flask",
+        "--app",
+        "app",
+        "run",
+        "--host=127.0.0.1",
+        "--port={port}",
+        "--no-reload"
+      ],
+      "environment": {},
+      "prestart": [
+        [
+          "python",
+          "-c",
+          "import sqlite3; c=sqlite3.connect('books.sqlite'); c.execute('CREATE TABLE IF NOT EXISTS book (id INTEGER PRIMARY KEY, author TEXT, title TEXT, page_number INTEGER)'); c.commit(); c.close()"
+        ]
+      ],
+      "setup": [],
+      "request": {
+        "path": "/books",
+        "body": {
+          "author": "test",
+          "title": "rl-{{run_id}}",
+          "page_number": 100
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/books",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "codingott-tech/express-json-products-rest-api",
+      "commit": "8afb88b5d9c7e0d05a9bc851f19d09f2105cde81",
+      "stack": "Express",
+      "working_directory": ".",
+      "start": [
+        "node",
+        "index.js"
+      ],
+      "environment": {},
+      "prestart": [],
+      "setup": [],
+      "request": {
+        "path": "/products",
+        "body": {
+          "title": "rl-{{run_id}}",
+          "description": "RecoveryLab test",
+          "price": 1.5,
+          "discount": 0,
+          "category": "test",
+          "image": "placeholder.png"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/products",
+        "list_pointer": ""
+      },
+      "before": 6,
+      "expected": 7,
+      "direct_after": 8,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "CryGor11/flask-sqlite-crud-api",
+      "commit": "ab68f6b676ed2adce70d1371522147284be4c0fe",
+      "stack": "Flask",
+      "working_directory": ".",
+      "start": [
+        "python",
+        "-m",
+        "flask",
+        "--app",
+        "app",
+        "run",
+        "--host=127.0.0.1",
+        "--port={port}",
+        "--no-reload"
+      ],
+      "environment": {},
+      "prestart": [],
+      "setup": [],
+      "request": {
+        "path": "/items",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "description": "RecoveryLab test"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/items",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "hasn2022ali/python-curd-api-sqlite",
+      "commit": "daf6524344289f18317d1ea92baf3dbdfd65a322",
+      "stack": "Flask",
+      "working_directory": ".",
+      "start": [
+        "python",
+        "-m",
+        "flask",
+        "--app",
+        "app",
+        "run",
+        "--host=127.0.0.1",
+        "--port={port}",
+        "--no-reload"
+      ],
+      "environment": {},
+      "prestart": [
+        [
+          "python",
+          "-c",
+          "from app import app; from models import db; ctx=app.app_context(); ctx.push(); db.create_all(); ctx.pop()"
+        ]
+      ],
+      "setup": [],
+      "request": {
+        "path": "/api/users",
+        "body": {
+          "username": "rl-{{run_id}}",
+          "password": "secret123"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/api/users",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 1,
+      "upstream_http": 201,
+      "retry_http": 500,
+      "verdict": "PASS",
+      "exit_code": 0
+    },
+    {
+      "repo": "itsmaheshkariya/flask-rest-api",
+      "commit": "e65ee8b4c6d0c9fb4395cc07432d0508359f540d",
+      "stack": "Flask",
+      "working_directory": ".",
+      "start": [
+        "python",
+        "-m",
+        "flask",
+        "--app",
+        "app",
+        "run",
+        "--host=127.0.0.1",
+        "--port={port}",
+        "--no-reload"
+      ],
+      "environment": {},
+      "prestart": [
+        [
+          "python",
+          "-c",
+          "from app import app,db; ctx=app.app_context(); ctx.push(); db.create_all(); ctx.pop()"
+        ]
+      ],
+      "setup": [],
+      "request": {
+        "path": "/person",
+        "body": {
+          "firstname": "rl-{{run_id}}",
+          "lastname": "test",
+          "email": "rl-{{run_id}}@example.com",
+          "password": "secret123"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/person",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 200,
+      "retry_http": 200,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "j3ny0k/flask-sqlite-todo-api",
+      "commit": "c80d1fb8c26c057140342e6663721f2b28e182a0",
+      "stack": "Flask",
+      "working_directory": ".",
+      "start": [
+        "python",
+        "-m",
+        "flask",
+        "--app",
+        "app",
+        "run",
+        "--host=127.0.0.1",
+        "--port={port}",
+        "--no-reload"
+      ],
+      "environment": {},
+      "prestart": [
+        [
+          "python",
+          "-c",
+          "from db import init_db; init_db()"
+        ]
+      ],
+      "setup": [],
+      "request": {
+        "path": "/api/tasks",
+        "body": {
+          "title": "rl-{{run_id}}",
+          "done": 0,
+          "priority": 2
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/api/tasks",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "Mansi06Salar/flask-product-rest-api",
+      "commit": "42af70191d50f707e936dc44b3d8eab385616831",
+      "stack": "Flask",
+      "working_directory": ".",
+      "start": [
+        "python",
+        "-m",
+        "flask",
+        "--app",
+        "app",
+        "run",
+        "--host=127.0.0.1",
+        "--port={port}",
+        "--no-reload"
+      ],
+      "environment": {},
+      "prestart": [
+        [
+          "python",
+          "init_db.py"
+        ]
+      ],
+      "setup": [],
+      "request": {
+        "path": "/products",
+        "body": {
+          "name": "rl-{{run_id}}"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/products",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "mansiTT/express-crud-api",
+      "commit": "60ed046974e5176f7a7c0855000b138d99104eab",
+      "stack": "Express",
+      "working_directory": ".",
+      "start": [
+        "node",
+        "app.js"
+      ],
+      "environment": {
+        "PORT": "{port}"
+      },
+      "prestart": [],
+      "setup": [
+        {
+          "path": "/user/role",
+          "body": {
+            "firstname": "baseline",
+            "email": "baseline@example.com",
+            "role": "tester"
+          }
+        }
+      ],
+      "request": {
+        "path": "/user/role",
+        "body": {
+          "firstname": "rl-{{run_id}}",
+          "email": "rl-{{run_id}}@example.com",
+          "role": "tester"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/users",
+        "list_pointer": ""
+      },
+      "before": 1,
+      "expected": 2,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "PASS",
+      "exit_code": 0
+    },
+    {
+      "repo": "matiaswisner/orders-api",
+      "commit": "680634c85c0ca0b084ff1c40438d21aa65dc3ddb",
+      "stack": "Spring",
+      "working_directory": ".",
+      "start": [
+        "java",
+        "-jar",
+        "target/orders-api-0.0.1-SNAPSHOT.jar",
+        "--server.address=127.0.0.1",
+        "--server.port={port}"
+      ],
+      "environment": {},
+      "prestart": [
+        [
+          "python",
+          "-c",
+          "import os; os.makedirs('data', exist_ok=True)"
+        ]
+      ],
+      "setup": [],
+      "request": {
+        "path": "/api/users",
+        "body": {
+          "fullName": "rl-{{run_id}}",
+          "email": "rl-{{run_id}}@example.com",
+          "passwordHash": "test"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/api/users",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 1,
+      "upstream_http": 200,
+      "retry_http": 400,
+      "verdict": "PASS",
+      "exit_code": 0
+    },
+    {
+      "repo": "Ogbodo-Oluebube/student-crud-express-api",
+      "commit": "6f42d0b5ada8aad4ad6cfff4dab9fda78c00a5ab",
+      "stack": "Express",
+      "working_directory": ".",
+      "start": [
+        "node",
+        "index.js"
+      ],
+      "environment": {},
+      "prestart": [],
+      "setup": [],
+      "request": {
+        "path": "/students",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "regNo": "rl-{{run_id}}",
+          "department": "test",
+          "level": 100
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/students",
+        "list_pointer": ""
+      },
+      "before": 5,
+      "expected": 6,
+      "direct_after": 6,
+      "upstream_http": 201,
+      "retry_http": 409,
+      "verdict": "PASS",
+      "exit_code": 0
+    },
+    {
+      "repo": "Omowunmiii/student-crud-api",
+      "commit": "efd670191c149a1483b3c9bec59a031ad7927433",
+      "stack": "Express",
+      "working_directory": ".",
+      "start": [
+        "node",
+        "src/server.js"
+      ],
+      "environment": {},
+      "prestart": [],
+      "setup": [],
+      "request": {
+        "path": "/students",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "age": 20,
+          "course": "test"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/students",
+        "list_pointer": ""
+      },
+      "before": 2,
+      "expected": 3,
+      "direct_after": 4,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "Oy3na/simple_user_api",
+      "commit": "35f26afb8cd6ede871e472d96411b48072c192ac",
+      "stack": "Flask",
+      "working_directory": ".",
+      "start": [
+        "python",
+        "-m",
+        "flask",
+        "--app",
+        "app",
+        "run",
+        "--host=127.0.0.1",
+        "--port={port}",
+        "--no-reload"
+      ],
+      "environment": {},
+      "prestart": [
+        [
+          "python",
+          "-c",
+          "import os; os.makedirs('data',exist_ok=True); import app; app.init_db()"
+        ]
+      ],
+      "setup": [],
+      "request": {
+        "path": "/users",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "email": "rl-{{run_id}}@example.com"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/users",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "rabiamuhammadsaleem/crud-rest-api",
+      "commit": "b3d477e0d73d513d5c32499e82ee4543d4d474a2",
+      "stack": "Express",
+      "working_directory": ".",
+      "start": [
+        "node",
+        "server.js"
+      ],
+      "environment": {},
+      "prestart": [],
+      "setup": [],
+      "request": {
+        "path": "/items",
+        "body": {
+          "id": 1,
+          "name": "rl-{{run_id}}"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/items",
+        "list_pointer": "/data"
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "Raghul-M/CRUD-Rest_api",
+      "commit": "7e7017cb1595b9b0269570a273d436873fbbcc84",
+      "stack": "Flask",
+      "working_directory": ".",
+      "start": [
+        "python",
+        "-m",
+        "flask",
+        "--app",
+        "main",
+        "run",
+        "--host=127.0.0.1",
+        "--port={port}",
+        "--no-reload"
+      ],
+      "environment": {},
+      "prestart": [
+        [
+          "python",
+          "-c",
+          "from main import db; db.create_all()"
+        ]
+      ],
+      "setup": [],
+      "request": {
+        "path": "/user",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "contact": "rl-{{run_id}}"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/users",
+        "list_pointer": ""
+      },
+      "before": 1,
+      "expected": 2,
+      "direct_after": 2,
+      "upstream_http": 200,
+      "retry_http": 500,
+      "verdict": "PASS",
+      "exit_code": 0
+    },
+    {
+      "repo": "SamuelDouradoDev/node-api-crud-in-memory",
+      "commit": "4fdc0ba8d0d8226c3271dc2553d304659e938a06",
+      "stack": "Express",
+      "working_directory": ".",
+      "start": [
+        "node",
+        "-r",
+        "<absolute-path-to-RecoveryLab>/docs/experiments/port-shim.cjs",
+        "index.js"
+      ],
+      "environment": {
+        "PORT": "{port}",
+        "RECOVERYLAB_ORIGINAL_PORT": "5000"
+      },
+      "prestart": [],
+      "setup": [],
+      "request": {
+        "path": "/users",
+        "body": {
+          "firstName": "rl-{{run_id}}",
+          "lastName": "test",
+          "age": 20
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/users",
+        "list_pointer": ""
+      },
+      "before": 2,
+      "expected": 3,
+      "direct_after": 4,
+      "upstream_http": 200,
+      "retry_http": 200,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "webdevsuman/in-memory-crud-api",
+      "commit": "b229767bc3c516f06a7a3540d37396326c17b485",
+      "stack": "Express",
+      "working_directory": ".",
+      "start": [
+        "node",
+        "-r",
+        "<absolute-path-to-RecoveryLab>/docs/experiments/port-shim.cjs",
+        "app.js"
+      ],
+      "environment": {
+        "PORT": "{port}",
+        "RECOVERYLAB_ORIGINAL_PORT": "5000"
+      },
+      "prestart": [],
+      "setup": [],
+      "request": {
+        "path": "/api/products",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "price": 1.5,
+          "category": "Other"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/api/products",
+        "list_pointer": "/data"
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    }
+  ]
+}

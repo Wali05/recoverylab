@@ -5,3 +5,4 @@
 *.test
 *.out
 .recoverylab/
+__pycache__/

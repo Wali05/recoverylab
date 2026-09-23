@@ -30,7 +30,7 @@ The numbers are observed/expected state values. `VIOLATION 2/1` means two writes
 
 The built-in servers make those bugs easy to reproduce. A race in your own service may take several runs to catch.
 
-I tested RecoveryLab against three services beyond its built-in demo:
+Here are three checks outside the built-in demo:
 
 | Service | Lost-response test |
 | --- | --- |
@@ -39,6 +39,8 @@ I tested RecoveryLab against three services beyond its built-in demo:
 | [Spring Boot idempotency sample](https://github.com/arthurfaby/spring-boot-starter-idempotency), an unrelated project | Ledger count `0 → 1`; `PASS` with the same idempotency key on the retry. |
 
 Those results show what happened in these setups, not a bug in NetCore or PocketBase: neither tested endpoint promises idempotency. The Spring sample keeps its ledger in memory, so its passing result says nothing about crash recovery. See the [NetCore check](docs/independent-check.md) and [third-party checks](docs/external-checks.md) for the setups and limits.
+
+I then tried the lost-response test against [20 small FastAPI repos](docs/compatibility-checks.md) and [27 Flask, Express, and Spring repos](docs/compatibility-checks-2.md). Including the three above, that's **50 distinct repos checked**. The extra 47 are mostly educational CRUD apps, not a representative sample of production systems. In those runs, 36 created two records and 11 created one; ten of the 11 one-record runs returned an error on retry. The linked notes include pinned commits, request bodies, HTTP statuses, and direct state checks.
 
 ## Install
 

@@ -1,0 +1,570 @@
+{
+  "date": "2026-09-24",
+  "recoverylab_version": "v0.1.2",
+  "binary_sha256": "d65efa2060cd80f0b4bfd114dad0f149f37ee781ebe435efc10dc0c1afff5bb3",
+  "scenario": "lost-response",
+  "expected_delta": 1,
+  "runs": [
+    {
+      "repo": "Anissa667u/manuscripts-api",
+      "commit": "3f8abe77a44956e44677aeada19c9879c3975e3b",
+      "app_module": "app.main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/manuscripts/",
+        "body": {
+          "title": "rl-{{run_id}}",
+          "author": "test",
+          "description": "RecoveryLab test"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/manuscripts/",
+        "list_pointer": ""
+      },
+      "before": 7,
+      "expected": 8,
+      "direct_after": 9,
+      "upstream_http": 200,
+      "retry_http": 200,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "Ardajs/mini-books-api",
+      "commit": "04b1580e8288d479553d1857af4c80a73f4c58c5",
+      "app_module": "library:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/book/add",
+        "body": {
+          "title": "rl-{{run_id}}",
+          "author": "Test",
+          "page": 10
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/books",
+        "list_pointer": "/output"
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 200,
+      "retry_http": 200,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "BpsEason/fastapi-message-board",
+      "commit": "32f5c658953616da8d814bdbb568e4b698746858",
+      "app_module": "backend.app.main:app",
+      "working_directory": ".",
+      "environment": {
+        "DATABASE_URL": "sqlite:///./message-test.db"
+      },
+      "setup": [],
+      "request": {
+        "path": "/messages/",
+        "body": {
+          "author": "RL",
+          "content": "rl-{{run_id}}"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/messages/",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 200,
+      "retry_http": 200,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "Caiov7003/api-produtos",
+      "commit": "7c047f86621559e968a67e570fedf1b84dd7e485",
+      "app_module": "app.main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/produtos",
+        "body": {
+          "nome": "rl-{{run_id}}",
+          "preco": 5
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/produtos",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "Chelsea-yang-xi/hotel-booking-api",
+      "commit": "d2f747dd88c156a6c25a90a9dede0f1fad5ea78d",
+      "app_module": "main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/hotels",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "city": "Test",
+          "price": 100
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/hotels",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 200,
+      "retry_http": 200,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "damianrydzewski/FastAPI-SQLModel-CRUD-app",
+      "commit": "ce1abaa4203cedec76313783db04e23e358e3495",
+      "app_module": "app:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/heroes/",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "secret_name": "test"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/heroes/",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 200,
+      "retry_http": 200,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "dhruvbadhe/crud-app",
+      "commit": "90f0e56d8c29007103a63c490d605c0ca4c2f0b3",
+      "app_module": "main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/employees/",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "email": "rl-{{run_id}}@example.com"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/employees/",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 1,
+      "upstream_http": 200,
+      "retry_http": 500,
+      "verdict": "PASS",
+      "exit_code": 0
+    },
+    {
+      "repo": "FidelCoder7/personal-expense-tracker",
+      "commit": "17c576f3af64a8e113a583024853e43bcd11efa9",
+      "app_module": "app.main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/transactions/",
+        "body": {
+          "title": "rl-{{run_id}}",
+          "amount": 2.5,
+          "category": "test",
+          "transaction_type": "expense"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/transactions/",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "HR-Builds/FastAPI-CRUD-Patient-Management",
+      "commit": "2b6641ef6fcbeb0ef86bdafee29ed945afd28609",
+      "app_module": "app.main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/patients",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "age": 30,
+          "gender": "other",
+          "disease": "test"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/patients",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 200,
+      "retry_http": 200,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "ImedBousakhria/fastapi_Sql_project",
+      "commit": "f08f4cfc7e91cde0eeb3fdf11607d789c2a7c725",
+      "app_module": "main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/todos/add_todo",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "category": "test",
+          "description": "RecoveryLab test"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/todos",
+        "list_pointer": ""
+      },
+      "before": 2,
+      "expected": 3,
+      "direct_after": 3,
+      "upstream_http": 200,
+      "retry_http": 500,
+      "verdict": "PASS",
+      "exit_code": 0
+    },
+    {
+      "repo": "jessicasalestech/python-fastapi-inventory-api",
+      "commit": "c948964572cc378b7c5e12333b5dd47b82a422e8",
+      "app_module": "app.main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/items",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "quantity": 1,
+          "price": 1
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/items",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "judeabii/PythonAPI-CRUD-Operations",
+      "commit": "d13c239f4cc566f8acfa52dc30494a56ad359171",
+      "app_module": "main:app",
+      "working_directory": "app",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/student",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "grade": "A",
+          "email": "rl-{{run_id}}@example.com"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/",
+        "list_pointer": ""
+      },
+      "before": 12,
+      "expected": 13,
+      "direct_after": 14,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "lymanny/FastAPI-CRUD-Todo",
+      "commit": "0ccc618b60c73bbc9f7a488a213ea14e852cb776",
+      "app_module": "main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/todos/",
+        "body": {
+          "title": "rl-{{run_id}}"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/todos/",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 200,
+      "retry_http": 200,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "mqqikq/flashcards-api",
+      "commit": "894ff4a281d4f281da4b2aae818888c2da06ab14",
+      "app_module": "app.main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [
+        {
+          "path": "/decks",
+          "body": {
+            "name": "rl-test-deck"
+          },
+          "capture": {
+            "deck_id": "/id"
+          }
+        }
+      ],
+      "request": {
+        "path": "/decks/{deck_id}/cards",
+        "body": {
+          "front": "lost-{{run_id}}",
+          "back": "answer"
+        }
+      },
+      "observation": {
+        "mode": "direct",
+        "path": "/stats",
+        "pointer": "/total_cards"
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "okashaghaffar/FastApi-boilerplat-Crud",
+      "commit": "7a6631faa03188d40f33ccfc77421c44de2b4135",
+      "app_module": "main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/users/",
+        "body": {
+          "name": "RL Test",
+          "email": "rl-{{run_id}}@example.test",
+          "password": "localpass"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 1,
+      "upstream_http": 200,
+      "retry_http": 400,
+      "verdict": "PASS",
+      "exit_code": 0
+    },
+    {
+      "repo": "pedro-guedes-data/FastAPI_CRUD",
+      "commit": "67a449eeef2682ad66c966753c194446e31a2c35",
+      "app_module": "main:app",
+      "working_directory": "Pets",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/pets",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "species": "cat"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/pets",
+        "list_pointer": ""
+      },
+      "before": 5,
+      "expected": 6,
+      "direct_after": 6,
+      "upstream_http": 201,
+      "retry_http": 422,
+      "verdict": "PASS",
+      "exit_code": 0
+    },
+    {
+      "repo": "r-otavio-dev/task-api",
+      "commit": "04d1efa3ab3fc7364bac25cbc5251554598d61d7",
+      "app_module": "main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/tasks",
+        "body": {
+          "title": "rl-{{run_id}}"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/tasks",
+        "list_pointer": ""
+      },
+      "before": 3,
+      "expected": 4,
+      "direct_after": 5,
+      "upstream_http": 201,
+      "retry_http": 201,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "rrslamerr/dating-profile-manager",
+      "commit": "5e468e4268a9fe455dcaa7d981b94f71043c951a",
+      "app_module": "app.main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/profiles/",
+        "body": {
+          "name": "rl-{{run_id}}",
+          "age": 25
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/profiles/",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 200,
+      "retry_http": 200,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    },
+    {
+      "repo": "Sanny0615/student-management-api",
+      "commit": "02e8c173217cd03554856f277a8686225fafa191",
+      "app_module": "main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/students",
+        "body": {
+          "id": 987654321,
+          "name": "rl-{{run_id}}",
+          "branch": "test"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/students/0",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 1,
+      "upstream_http": 200,
+      "retry_http": 400,
+      "verdict": "PASS",
+      "exit_code": 0
+    },
+    {
+      "repo": "th-santos/python-backend-sample",
+      "commit": "f50c1a92eaf4340aef151482395b0b952098072e",
+      "app_module": "app.main:app",
+      "working_directory": ".",
+      "environment": {},
+      "setup": [],
+      "request": {
+        "path": "/items",
+        "body": {
+          "name": "rl-{{run_id}}"
+        }
+      },
+      "observation": {
+        "mode": "list",
+        "path": "/items",
+        "list_pointer": ""
+      },
+      "before": 0,
+      "expected": 1,
+      "direct_after": 2,
+      "upstream_http": 200,
+      "retry_http": 200,
+      "verdict": "VIOLATION",
+      "exit_code": 1
+    }
+  ]
+}
