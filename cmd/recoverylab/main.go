@@ -17,7 +17,8 @@ import (
 	"recoverylab/internal/fixture"
 )
 
-const version = "0.1.0"
+// Release builds set this from the Git tag with -ldflags.
+var version = "dev"
 
 func main() { os.Exit(run(os.Args[1:])) }
 
