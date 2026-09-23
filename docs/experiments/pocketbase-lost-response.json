@@ -1,0 +1,15 @@
+{
+  "name": "pocketbase-post-lost-response",
+  "scenario": "lost-response",
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:8090/api/collections/retry_orders/records",
+    "headers": { "Content-Type": "application/json" },
+    "body": { "clientKey": "lost-{{run_id}}" }
+  },
+  "observe": {
+    "url": "http://127.0.0.1:8090/api/collections/retry_orders/records?perPage=1",
+    "pointer": "/totalItems",
+    "expected_delta": 1
+  }
+}

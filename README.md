@@ -30,7 +30,15 @@ The numbers are observed/expected state values. `VIOLATION 2/1` means two writes
 
 The built-in servers make those bugs easy to reproduce. A race in your own service may take several runs to catch.
 
-I also tried it on [NetCore](https://github.com/Wali05/NetCore), a separate Spring Boot app using an in-memory H2 database. RecoveryLab hid a successful `allocate-next` response and retried the request. The allocation count went from 0 to 2. NetCore doesn't promise idempotency for that endpoint, but the result shows why a client needs to think carefully before retrying it. [Here's the full check](docs/independent-check.md).
+I tested RecoveryLab against three services beyond its built-in demo:
+
+| Service | Lost-response test |
+| --- | --- |
+| [NetCore](https://github.com/Wali05/NetCore), my own project | Allocation count `0 → 2`; `VIOLATION` when the test expected one. |
+| [PocketBase](https://github.com/pocketbase/pocketbase), an unrelated project | Record count `0 → 2`; `VIOLATION` when the test expected one. |
+| [Spring Boot idempotency sample](https://github.com/arthurfaby/spring-boot-starter-idempotency), an unrelated project | Ledger count `0 → 1`; `PASS` with the same idempotency key on the retry. |
+
+Those results show what happened in these setups, not a bug in NetCore or PocketBase: neither tested endpoint promises idempotency. The Spring sample keeps its ledger in memory, so its passing result says nothing about crash recovery. See the [NetCore check](docs/independent-check.md) and [third-party checks](docs/external-checks.md) for the setups and limits.
 
 ## Install
 
