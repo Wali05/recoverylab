@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"recoverylab/internal/config"
-	"recoverylab/internal/fixture"
+	"github.com/Wali05/recoverylab/internal/config"
+	"github.com/Wali05/recoverylab/internal/fixture"
 )
 
 func scenario(base, mode string, service *config.Service) config.Config {

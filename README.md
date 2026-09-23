@@ -1,20 +1,22 @@
 # RecoveryLab
 
-Your API creates an order, but the reply never reaches the caller. The caller tries again. Did you create two orders?
+**A local failure lab for APIs that write data.**
 
-RecoveryLab is a Go CLI for trying that failure, a burst of duplicate requests, and a crash just after a successful response. It runs against a local HTTP service and checks integers you choose, such as order and charge counts. That lets you check visible side effects instead of relying on HTTP status codes alone.
+Imagine your API creates an order and sends `200 OK`, but the response disappears on the way back. The client retries. RecoveryLab recreates that moment, then checks whether the order was created once or twice.
 
-The target can be written in any language that serves HTTP. A scenario file records the request and checks so you can run the same experiment again while changing your service.
+It also tests a burst of duplicate requests and a process crash after a successful response. RecoveryLab works with any local HTTP service that exposes the state you want to check. It judges the observed side effect, not just the HTTP status.
 
-## Try it in a minute
+![Terminal preview of the six built-in RecoveryLab demo cases](docs/assets/demo.png)
 
-From the repository root, with Go 1.23 or newer:
+## See it run
+
+With [Go 1.23+](https://go.dev/dl/) installed, run this from the repository root:
 
 ```sh
 go run ./cmd/recoverylab demo
 ```
 
-The demo starts its own tiny services. No Docker or account is needed. It runs each scenario against a healthy service and one with a deliberate bug:
+The demo starts its own services. It needs no Docker, account, or API key. Three services are healthy; three have deliberate bugs:
 
 ```text
 correct/lost-response                  PASS       expected=PASS  state=1/1
@@ -25,15 +27,22 @@ correct/crash-after-ack                PASS       expected=PASS  state=1/1
 early-ack-bug/crash-after-ack          VIOLATION  expected=VIOLATION  state=0/1
 ```
 
-`state=2/1` means the service applied an operation twice when the expected final count was one. The three bugs are intentional: a duplicate write, a check-then-write race, and an acknowledgement before a durable write.
+For example, `duplicate-bug/lost-response` reports `state=2/1`: two writes occurred when the expected result was one. A `VIOLATION` is the *correct* result for that buggy fixture.
 
-The fixture deliberately pauses in its race and early-ack cases so the demo is repeatable. Real race windows can be much shorter; this demo does not measure how often RecoveryLab will find a bug in another service.
+The fixture makes its race and early-ack bugs repeatable. That demonstrates how the checks work; it does not predict how often a run will expose a bug in your service.
 
 ## Install
 
-For a published version, download the binary for your OS and CPU from the repository's **Releases** page. Rename it to `recoverylab` (`recoverylab.exe` on Windows) and put it on your `PATH`. On macOS or Linux, run `chmod +x recoverylab` first. Each release includes a `checksums.txt` file so you can verify the download. Release binaries are currently unsigned, so your OS may ask you to approve them; building from source is another option.
+If you have Go 1.23 or newer:
 
-If you prefer to build from source, run `go build -o recoverylab ./cmd/recoverylab` from the repository root. On Windows, use `go build -o recoverylab.exe ./cmd/recoverylab`.
+```sh
+go install github.com/Wali05/recoverylab/cmd/recoverylab@latest
+recoverylab demo
+```
+
+You can also [download a release binary](https://github.com/Wali05/recoverylab/releases) for Windows, macOS, or Linux once a release is published. Put it on your `PATH` (`recoverylab.exe` on Windows). Releases include SHA-256 checksums; binaries are currently unsigned.
+
+To build from a checkout, run `go build -o recoverylab ./cmd/recoverylab` (`go build -o recoverylab.exe ./cmd/recoverylab` on Windows).
 
 ## What it tests
 

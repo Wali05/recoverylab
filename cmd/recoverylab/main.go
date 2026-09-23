@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"recoverylab/internal/config"
-	"recoverylab/internal/engine"
-	"recoverylab/internal/fixture"
+	"github.com/Wali05/recoverylab/internal/config"
+	"github.com/Wali05/recoverylab/internal/engine"
+	"github.com/Wali05/recoverylab/internal/fixture"
 )
 
 // Release builds set this from the Git tag with -ldflags.

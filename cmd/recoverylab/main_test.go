@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"recoverylab/internal/engine"
+	"github.com/Wali05/recoverylab/internal/engine"
 )
 
 func TestFixtureRejectsNonLoopbackListen(t *testing.T) {

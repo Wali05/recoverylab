@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"recoverylab/internal/config"
+	"github.com/Wali05/recoverylab/internal/config"
 )
 
 type proxyResult struct {

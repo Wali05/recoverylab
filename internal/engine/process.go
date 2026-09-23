@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"recoverylab/internal/config"
+	"github.com/Wali05/recoverylab/internal/config"
 )
 
 type tailBuffer struct {
