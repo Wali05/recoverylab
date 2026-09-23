@@ -1,0 +1,20 @@
+{
+  "name": "fixture-concurrent-operation-once",
+  "scenario": "concurrent-duplicates",
+  "concurrency": 16,
+  "timeout": "20s",
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:8080/operations",
+    "headers": {
+      "Content-Type": "application/json",
+      "Idempotency-Key": "recoverylab-{{run_id}}"
+    },
+    "body": { "amount": 1 }
+  },
+  "observe": {
+    "url": "http://127.0.0.1:8080/state",
+    "pointer": "/count",
+    "expected_delta": 1
+  }
+}
