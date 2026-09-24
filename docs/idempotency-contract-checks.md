@@ -39,3 +39,25 @@ For Spring, follow the [sample-app setup](external-checks.md#spring-sample-setup
 These are contract checks of three specific, pinned integrations. They show that RecoveryLab can verify a lost reply, one handler execution per key, and a selected ID in the replay across Express, FastAPI, and Spring. The controls show that the same scenarios detect missing idempotency in the two small hosts. **I found no bug in these upstream projects.**
 
 The hosts and Spring sample keep state in memory. These runs say nothing about a process crash, a separate database, multiple service instances, TTL expiry, or a real payment provider. RecoveryLab compared only the selected ID and the count; it did not compare every response field. A 10-run batch is repeatability evidence for this setup, not a reliability guarantee. The [raw reports](experiments/idempotency) are included so the exact observations can be checked without relying on this summary.
+
+## Overlapping requests
+
+I followed up with 100 bursts against each guarded integration. Every burst sent 16 copies with a fresh key, then checked for exactly one new effect and accepted only HTTP 201 or 409. The Express and FastAPI hosts waited 100 ms inside their operation handlers so the requests really overlapped. The Spring sample was left unmodified and ran without an added delay. The [per-run results](experiments/idempotency/concurrent-runs.csv) list each key, verdict, count, and response-code totals.
+
+| Project | Guarded: 100 bursts | HTTP responses across 1,600 requests | Guard-off control |
+| --- | --- | --- | --- |
+| Express middleware | 100 `PASS`, one effect per key | 100 × 201, 1,500 × 409 | 10 `VIOLATION`; 16 effects per burst |
+| FastAPI decorator, in-memory backend | 100 `PASS`, one effect per key | 100 × 201, 1,500 × 409 | 10 `VIOLATION`; 16 effects per burst |
+| Spring payment sample | 100 `PASS`, one ledger entry per key | 328 × 201, 1,272 × 409 | Not run; the sample's annotation stayed in place |
+
+The 409s are expected while an operation is still in progress; a client can retry after it finishes. The Spring app returned 201 to more than one copy in some bursts while its ledger still gained only one entry. I did not compare those response bodies in this concurrent test. In the FastAPI host, I had to map the library's `RequestInProgressException` to HTTP 409. Before adding that host-side exception handler, its in-progress requests returned 500. That was a mistake in my integration host, not a bug found in the library.
+
+To repeat this check, use the same pinned checkouts and setup above, set `OPERATION_DELAY_MS=100` before starting the Express or FastAPI host, and run the corresponding [Express](experiments/idempotency/express-concurrent.json), [FastAPI](experiments/idempotency/fastapi-concurrent.json), or [Spring](experiments/idempotency/spring-concurrent.json) scenario:
+
+```powershell
+recoverylab run --repeat 100 --output concurrent-report.json docs/experiments/idempotency/express-concurrent.json
+```
+
+Change the scenario path for the other two projects. For the controls, restart the Express host in `control` mode or the FastAPI host with `IDEMPOTENCY_MODE=control`, then use `--repeat 10`. I kept the full JSON reports outside the repository and committed a compact row for every run in the CSV, avoiding another large dump of repeated event text. The CSV baselines include earlier probes and bursts; each verdict compares its own baseline with the value after that burst. The host delay is test scaffolding; the middleware and decorator source was not edited.
+
+These runs did **not** uncover a bug in any upstream project. They cover one process and one fresh key per burst. They do not test Redis, a database crash, multiple service instances, TTL expiry, a reused key with a different body, or whether every successful concurrent reply contains the same operation ID.

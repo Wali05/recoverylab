@@ -1,0 +1,23 @@
+{
+  "name": "express-idempotency-overlapping-key",
+  "scenario": "concurrent-duplicates",
+  "concurrency": 16,
+  "timeout": "20s",
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:18080/operations",
+    "headers": {
+      "Content-Type": "application/json",
+      "Idempotency-Key": "recoverylab-{{run_id}}"
+    },
+    "body": { "amount": 17 }
+  },
+  "observe": {
+    "url": "http://127.0.0.1:18080/state",
+    "pointer": "/count",
+    "expected_delta": 1
+  },
+  "concurrent_response": {
+    "allowed_statuses": [201, 409]
+  }
+}

@@ -70,6 +70,41 @@ func TestConcurrentDuplicatesFindsCheckThenWriteRace(t *testing.T) {
 	}
 }
 
+func TestConcurrentResponseStatusesCatchUnhandledConflict(t *testing.T) {
+	var mu sync.Mutex
+	seen := map[string]bool{}
+	count := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.URL.Path == "/state" {
+			_ = json.NewEncoder(w).Encode(map[string]int{"count": count})
+			return
+		}
+		key := r.Header.Get("Idempotency-Key")
+		if seen[key] {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		seen[key] = true
+		count++
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+	c := scenario(server.URL, "concurrent-duplicates", nil)
+	c.Concurrency = 8
+	c.ConcurrentResponse = &config.ConcurrentResponse{AllowedStatuses: []int{http.StatusCreated, http.StatusConflict}}
+	r := Run(context.Background(), c)
+	if r.Status != "VIOLATION" || r.ConcurrentResponse == nil || r.ConcurrentResponse.Passed || r.Observed == nil || *r.Observed != 1 || !strings.Contains(r.Error, "HTTP 500 returned by 7") {
+		t.Fatalf("unhandled conflicts should fail the response check: %+v", r)
+	}
+	c.ConcurrentResponse.AllowedStatuses = []int{http.StatusCreated, http.StatusInternalServerError}
+	r = Run(context.Background(), c)
+	if r.Status != "PASS" || r.ConcurrentResponse == nil || !r.ConcurrentResponse.Passed || r.Observed == nil || *r.Observed != 2 {
+		t.Fatalf("declared statuses should pass: %+v", r)
+	}
+}
+
 func TestHelperService(t *testing.T) {
 	if os.Getenv("RECOVERYLAB_HELPER") != "1" {
 		return

@@ -18,16 +18,17 @@ import (
 
 // Config describes one reproducible failure experiment.
 type Config struct {
-	Name          string         `json:"name"`
-	Scenario      string         `json:"scenario"`
-	Timeout       string         `json:"timeout,omitempty"`
-	Concurrency   int            `json:"concurrency,omitempty"`
-	Service       *Service       `json:"service,omitempty"`
-	Request       Request        `json:"request"`
-	Observe       Observation    `json:"observe,omitempty"`
-	Checks        []Observation  `json:"checks,omitempty"`
-	RetryResponse *RetryResponse `json:"retry_response,omitempty"`
-	SourceDir     string         `json:"-"`
+	Name               string              `json:"name"`
+	Scenario           string              `json:"scenario"`
+	Timeout            string              `json:"timeout,omitempty"`
+	Concurrency        int                 `json:"concurrency,omitempty"`
+	Service            *Service            `json:"service,omitempty"`
+	Request            Request             `json:"request"`
+	Observe            Observation         `json:"observe,omitempty"`
+	Checks             []Observation       `json:"checks,omitempty"`
+	RetryResponse      *RetryResponse      `json:"retry_response,omitempty"`
+	ConcurrentResponse *ConcurrentResponse `json:"concurrent_response,omitempty"`
+	SourceDir          string              `json:"-"`
 }
 
 // RetryResponse adds checks for the reply to a lost-response retry.
@@ -35,6 +36,12 @@ type Config struct {
 type RetryResponse struct {
 	AllowedStatuses  []int    `json:"allowed_statuses,omitempty"`
 	SameJSONPointers []string `json:"same_json_pointers,omitempty"`
+}
+
+// ConcurrentResponse checks the HTTP codes returned by an overlapping burst.
+// In-progress conflicts such as 409 may be listed when the API promises them.
+type ConcurrentResponse struct {
+	AllowedStatuses []int `json:"allowed_statuses"`
 }
 
 type Service struct {
@@ -190,6 +197,21 @@ func (c Config) Validate() error {
 				return fmt.Errorf("retry_response.same_json_pointers contains an invalid or duplicate JSON pointer %q", pointer)
 			}
 			seenPointers[pointer] = true
+		}
+	}
+	if c.ConcurrentResponse != nil {
+		if c.Scenario != "concurrent-duplicates" {
+			return errors.New("concurrent_response only applies to concurrent-duplicates")
+		}
+		if len(c.ConcurrentResponse.AllowedStatuses) == 0 || len(c.ConcurrentResponse.AllowedStatuses) > 16 {
+			return errors.New("concurrent_response.allowed_statuses requires 1 to 16 HTTP codes")
+		}
+		seenStatuses := map[int]bool{}
+		for _, status := range c.ConcurrentResponse.AllowedStatuses {
+			if status < 200 || status > 599 || seenStatuses[status] {
+				return errors.New("concurrent_response.allowed_statuses must contain distinct HTTP codes from 200 to 599")
+			}
+			seenStatuses[status] = true
 		}
 	}
 	if c.Timeout != "" {

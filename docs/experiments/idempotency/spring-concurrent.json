@@ -1,0 +1,23 @@
+{
+  "name": "spring-starter-overlapping-key",
+  "scenario": "concurrent-duplicates",
+  "concurrency": 16,
+  "timeout": "20s",
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:8080/payments",
+    "headers": {
+      "Content-Type": "application/json",
+      "Idempotency-Key": "recoverylab-{{run_id}}"
+    },
+    "body": { "amount": 100, "currency": "USD" }
+  },
+  "observe": {
+    "url": "http://127.0.0.1:8091/count",
+    "pointer": "/count",
+    "expected_delta": 1
+  },
+  "concurrent_response": {
+    "allowed_statuses": [201, 409]
+  }
+}

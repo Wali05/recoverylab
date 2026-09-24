@@ -40,7 +40,7 @@ Here are three checks outside the built-in demo:
 
 Those results show what happened in these setups, not a bug in NetCore or PocketBase: neither tested endpoint promises idempotency. The Spring sample keeps its ledger in memory, so its passing result says nothing about crash recovery. See the [NetCore check](docs/independent-check.md) and [third-party checks](docs/external-checks.md) for the setups and limits.
 
-A more focused check uses projects that actually promise safe retries. With v0.2.0, I tested [three idempotency projects](docs/idempotency-contract-checks.md): an Express middleware, a FastAPI decorator, and the Spring payment sample. Each handled ten lost-response runs with one effect and the same operation ID on retry. In small hosts for the Express and FastAPI libraries, turning off the idempotency guard made all ten runs fail. These are local contract checks, not discovered bugs in those projects; the linked notes include pinned commits, test hosts, and raw reports.
+A more focused check uses projects that actually promise safe retries. I tested [three idempotency projects](docs/idempotency-contract-checks.md): an Express middleware, a FastAPI decorator, and the Spring payment sample. Each handled ten lost-response runs with one effect and the same operation ID on retry. I then ran 100 bursts of 16 requests with the same key against each project. All 300 bursts had one effect; in-progress requests got 409 where expected. Turning off the guard in the Express and FastAPI hosts made every control burst create 16 effects. These are local contract checks, not discovered bugs in those projects.
 
 For breadth, I also tried the older state-only test against [20 small FastAPI repos](docs/compatibility-checks.md) and [27 Flask, Express, and Spring repos](docs/compatibility-checks-2.md). Including the three earlier checks, that's **50 distinct repos checked**. The extra 47 are mostly educational CRUD apps, not a representative sample of production systems. In those runs, 36 created two records and 11 created one; ten of the 11 one-record runs returned an error on retry. Those are historical v0.1.2 verdicts; the current version would flag those ten rejected retries as violations. The linked notes preserve the original run data.
 
@@ -62,7 +62,7 @@ If you'd rather build it yourself, run `go build -o recoverylab ./cmd/recoveryla
 | Scenario | What RecoveryLab does | What you learn |
 | --- | --- | --- |
 | `lost-response` | Lets the service process a request, drops the reply, then sends the same request again. | Whether a retry repeats the side effect and whether the client gets a successful reply. |
-| `concurrent-duplicates` | Sends 2–64 copies of the same request together. | Whether this burst caused a duplicate side effect. |
+| `concurrent-duplicates` | Sends 2–64 copies of the same request together. | Whether this burst caused a duplicate side effect or returned a response code outside the optional list you allow. |
 | `crash-after-ack` | Starts your service, sends a request, kills its process after a 2xx response, then restarts it. | Whether the exposed state survived that process crash. |
 
 RecoveryLab reads your state endpoint before and after the experiment. For each check, it compares the final integer with `baseline + expected_delta`. The lost-response test also requires a successful (2xx) retry response by default. It can only judge the state and reply you expose; a passing run is not proof that every possible side effect is safe.
@@ -135,6 +135,8 @@ go run ./cmd/recoverylab run examples/lost-response.json
 
 Stop the fixture before changing its mode. To try the duplicate bug, start it with `--mode duplicate-bug` and a **new journal path**, then run the same scenario. For overlapping requests, use [examples/concurrent-duplicates.json](examples/concurrent-duplicates.json) and the fixture's `race-bug` mode.
 
+For a concurrent scenario, add `"concurrent_response": { "allowed_statuses": [201, 409] }` if your API returns 201 to the winning request and 409 while that request is still running. Any other code then becomes a `VIOLATION`, even if the final count is correct. Use the codes your API actually promises. Without this block, concurrent response codes are recorded but only the state checks decide the verdict.
+
 For a Docker Compose service, [publish its HTTP port on host loopback](https://docs.docker.com/get-started/docker-concepts/running-containers/publishing-ports/), for example `ports: ["127.0.0.1:8080:8080"]`, and use `http://127.0.0.1:8080` in the scenario. RecoveryLab cannot directly address a container-only bridge IP from the host. The managed-process crash scenario requires a foreground process it can kill; it does not kill a Docker container.
 
 ### Test a crash after a successful response
@@ -157,8 +159,8 @@ RecoveryLab waits for `ready_url`, reads the baseline, sends the operation, kill
 
 | Exit code | Result | Meaning |
 | --- | --- | --- |
-| `0` | `PASS` | State checks matched and, for lost-response, the retry reply met its checks. |
-| `1` | `VIOLATION` | The fault ran, and a state or retry-response check failed. |
+| `0` | `PASS` | State checks and any declared response checks matched. |
+| `1` | `VIOLATION` | The fault ran, and a state or response check failed. |
 | `2` | `ERROR` | Setup, a request, or an observation failed; there is no correctness verdict. |
 
 These are the built `recoverylab` binary's exit codes. `go run` can wrap a nonzero exit; use the built binary when checking exit codes in CI.
@@ -167,7 +169,7 @@ For a machine-readable report, run `go run ./cmd/recoverylab run --format json -
 
 RecoveryLab accepts loopback HTTP(S) URLs only and does not follow redirects. Its current scope is one operation and up to 16 named integer checks per run. Those checks can still miss effects that your state endpoints do not show.
 
-Concurrent response codes are recorded but do not decide `PASS` or `VIOLATION`; the declared state checks do. In lost-response runs, the retry status also decides the verdict. Matching a selected JSON value is optional and checks only those selected fields, not the whole response or its timing. The request body and observation response are limited to 1 MiB each.
+Concurrent response codes decide `PASS` or `VIOLATION` only when `concurrent_response.allowed_statuses` is set. In lost-response runs, the retry status always decides the verdict. Matching a selected JSON value is optional for lost-response runs and checks only those selected fields, not the whole response or its timing. Concurrent runs do not compare response bodies. The request body and observation response are limited to 1 MiB each.
 
 A single run may miss an intermittent race. With the fixture or your service running, use `go run ./cmd/recoverylab run --repeat 20 examples/concurrent-duplicates.json` to try 20 independent bursts; each gets a fresh `{{run_id}}`. A batch reports every result and exits with a violation if any run found one. With `--format json` or `--output`, repeated runs produce one JSON object containing a `reports` array. Asynchronous or eventually consistent writes need a different check because RecoveryLab reads state immediately after the requests finish.
 

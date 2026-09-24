@@ -126,3 +126,37 @@ func TestRetryResponseValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestConcurrentResponseValidation(t *testing.T) {
+	delta := int64(1)
+	c := Config{
+		Name: "statuses", Scenario: "concurrent-duplicates",
+		Request:            Request{Method: "POST", URL: "http://127.0.0.1:8080/write"},
+		Observe:            Observation{URL: "http://127.0.0.1:8080/state", Pointer: "/count", ExpectedDelta: &delta},
+		ConcurrentResponse: &ConcurrentResponse{AllowedStatuses: []int{201, 409}},
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name     string
+		statuses []int
+		want     string
+	}{
+		{"empty", nil, "1 to 16"},
+		{"bad code", []int{700}, "HTTP codes"},
+		{"duplicate", []int{409, 409}, "distinct"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			copy := c
+			copy.ConcurrentResponse = &ConcurrentResponse{AllowedStatuses: test.statuses}
+			if err := copy.Validate(); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("got %v, want %q", err, test.want)
+			}
+		})
+	}
+	c.Scenario = "lost-response"
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "only applies") {
+		t.Fatalf("wrong scenario: got %v", err)
+	}
+}

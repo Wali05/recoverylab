@@ -46,22 +46,29 @@ type ResponseCheck struct {
 	Issues             []string `json:"issues,omitempty"`
 }
 
+type ConcurrentResponseCheck struct {
+	AllowedStatuses []int    `json:"allowed_statuses"`
+	Passed          bool     `json:"passed"`
+	Issues          []string `json:"issues,omitempty"`
+}
+
 type Report struct {
-	Name          string         `json:"name"`
-	Scenario      string         `json:"scenario"`
-	RunID         string         `json:"run_id"`
-	Status        string         `json:"status"`
-	StartedAt     string         `json:"started_at"`
-	DurationMS    int64          `json:"duration_ms"`
-	Baseline      *int64         `json:"baseline,omitempty"`
-	Expected      *int64         `json:"expected,omitempty"`
-	Observed      *int64         `json:"observed,omitempty"`
-	Checks        []StateCheck   `json:"checks,omitempty"`
-	RetryResponse *ResponseCheck `json:"retry_response,omitempty"`
-	FaultInjected bool           `json:"fault_injected"`
-	Attempts      []Attempt      `json:"attempts"`
-	Events        []Event        `json:"events"`
-	Error         string         `json:"error,omitempty"`
+	Name               string                   `json:"name"`
+	Scenario           string                   `json:"scenario"`
+	RunID              string                   `json:"run_id"`
+	Status             string                   `json:"status"`
+	StartedAt          string                   `json:"started_at"`
+	DurationMS         int64                    `json:"duration_ms"`
+	Baseline           *int64                   `json:"baseline,omitempty"`
+	Expected           *int64                   `json:"expected,omitempty"`
+	Observed           *int64                   `json:"observed,omitempty"`
+	Checks             []StateCheck             `json:"checks,omitempty"`
+	RetryResponse      *ResponseCheck           `json:"retry_response,omitempty"`
+	ConcurrentResponse *ConcurrentResponseCheck `json:"concurrent_response,omitempty"`
+	FaultInjected      bool                     `json:"fault_injected"`
+	Attempts           []Attempt                `json:"attempts"`
+	Events             []Event                  `json:"events"`
+	Error              string                   `json:"error,omitempty"`
 }
 
 func (r *Report) event(step, detail string) {
@@ -133,7 +140,7 @@ func Run(parent context.Context, c config.Config) (r Report) {
 	case "lost-response":
 		err = runLostResponse(ctx, c.Request, c.RetryResponse, &r)
 	case "concurrent-duplicates":
-		err = runConcurrent(ctx, c.Request, c.Workers(), &r)
+		err = runConcurrent(ctx, c.Request, c.Workers(), c.ConcurrentResponse, &r)
 	case "crash-after-ack":
 		err = runCrashAfterAck(ctx, c.Request, managed, &r)
 	}
@@ -161,6 +168,9 @@ func Run(parent context.Context, c config.Config) (r Report) {
 	if r.RetryResponse != nil {
 		mismatches = append(mismatches, r.RetryResponse.Issues...)
 	}
+	if r.ConcurrentResponse != nil {
+		mismatches = append(mismatches, r.ConcurrentResponse.Issues...)
+	}
 	if len(mismatches) > 0 {
 		r.Status = "VIOLATION"
 		r.Error = "check failed: " + strings.Join(mismatches, "; ")
@@ -170,7 +180,7 @@ func Run(parent context.Context, c config.Config) (r Report) {
 	return r
 }
 
-func runConcurrent(ctx context.Context, request config.Request, workers int, r *Report) error {
+func runConcurrent(ctx context.Context, request config.Request, workers int, responseRule *config.ConcurrentResponse, r *Report) error {
 	r.event("fault", fmt.Sprintf("releasing %d copies of the same operation at once", workers))
 	start := make(chan struct{})
 	results := make([]Attempt, workers)
@@ -205,6 +215,25 @@ func runConcurrent(ctx context.Context, request config.Request, workers int, r *
 		parts = append(parts, fmt.Sprintf("%d=%d", code, statuses[code]))
 	}
 	r.event("responses", fmt.Sprintf("all %d copies completed; HTTP status counts: %s", workers, strings.Join(parts, ", ")))
+	if responseRule != nil {
+		allowed := make(map[int]bool, len(responseRule.AllowedStatuses))
+		for _, status := range responseRule.AllowedStatuses {
+			allowed[status] = true
+		}
+		check := ConcurrentResponseCheck{AllowedStatuses: append([]int(nil), responseRule.AllowedStatuses...), Passed: true}
+		for _, code := range codes {
+			if !allowed[code] {
+				check.Issues = append(check.Issues, fmt.Sprintf("HTTP %d returned by %d concurrent copies", code, statuses[code]))
+			}
+		}
+		check.Passed = len(check.Issues) == 0
+		r.ConcurrentResponse = &check
+		if check.Passed {
+			r.event("response check", "all concurrent responses used declared HTTP statuses")
+		} else {
+			r.event("response check", strings.Join(check.Issues, "; "))
+		}
+	}
 	return nil
 }
 
