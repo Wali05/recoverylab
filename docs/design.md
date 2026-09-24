@@ -34,20 +34,22 @@ start service → ready probe → baseline → POST → 2xx response
                                                ↓
                                             kill process
                                                ↓
-                                  restart → ready probe → final state
+                                  restart → ready probe → state check
+                                                       ↓ optional
+                                          retry same request → final state
 ```
 
-RecoveryLab manages a foreground process and forcibly kills it after receiving the operation's successful response. It then starts the same command again. This probes whether an *acknowledged* effect survived that application process crash. It does not kill an external database, simulate a machine power loss or disk failure, or crash at every possible instruction. Testing a precise in-operation crash point would require an explicit failpoint protocol in the target service.
+RecoveryLab manages a foreground process and forcibly kills it after receiving the operation's successful response. It then starts the same command again. This probes whether an *acknowledged* effect survived that application process crash. When `retry_response` is present, it reads each declared state value **before** resending the same request. It compares the retry reply and reads state again afterward. The first check matters: otherwise a retry that recreates a lost write could make the final count look correct. Without `retry_response`, the original durability-only check still reads state once after restart. RecoveryLab does not kill an external database, simulate a machine power loss or disk failure, or crash at every possible instruction. Testing a precise in-operation crash point would require an explicit failpoint protocol in the target service.
 
 The readiness URL must not already return 2xx before the managed process starts. That check prevents a leftover server on the same port from creating a false pass. The command should launch the actual server executable without a shell wrapper, so the process being killed is the process serving requests.
 
 ## Verdicts and their limits
 
-Each state invariant is `final integer = baseline integer + expected_delta`. `PASS` means every declared check held after the injected scenario, including the retry reply check for lost-response. `VIOLATION` means the experiment completed and at least one check failed. `ERROR` means the runner could not establish the experiment's preconditions or read the state reliably. If the original reply lacks a JSON value a scenario asks to compare, the scenario is inconclusive (`ERROR`); if the retry lacks or changes that value, the result is a `VIOLATION`.
+Each state invariant is `observed integer = baseline integer + expected_delta`. `PASS` means every declared check held, including response checks and, for a crash with retry, both the before-retry and final state checks. `VIOLATION` means at least one check definitely failed. `ERROR` means the runner could not establish the experiment's preconditions or read enough state for a verdict. If the original reply lacks a JSON value a scenario asks to compare, the comparison is inconclusive; if the retry lacks or changes that value, the result is a `VIOLATION`. A durability mismatch already observed after restart remains a `VIOLATION` even if a later retry cannot be completed; the report also says that retry was incomplete.
 
 Even several final counts cannot distinguish every incorrect history. A service could create and later delete duplicate records, or mutate an unobserved field. Choose checks that directly reflect the effects of interest, such as both payment and ledger-entry counts. Keep the target isolated from other writers while the experiment runs; otherwise unrelated writes can change the observed values.
 
-RecoveryLab records HTTP codes from retries and concurrent requests. A lost-response retry must return 2xx unless the scenario declares exact allowed codes; concurrent response codes are informational. Selecting JSON pointers for response comparison is optional and should target stable fields such as a resource ID. RecoveryLab does not compare whole responses, headers, or latency.
+RecoveryLab records HTTP codes from retries and concurrent requests. A lost-response retry, and a post-restart retry when enabled, must return 2xx unless the scenario declares exact allowed codes. Concurrent response codes are informational unless `concurrent_response.allowed_statuses` is set. Selecting JSON pointers for retry comparison is optional and should target stable fields such as a resource ID. RecoveryLab does not compare whole responses, headers, or latency.
 
 ## Failure handling
 

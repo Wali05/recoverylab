@@ -95,7 +95,7 @@ func (s *store) has(key string) bool {
 // The bug modes are intentional and must never be used as production examples.
 func New(mode, journal string) (http.Handler, error) {
 	switch mode {
-	case "correct", "duplicate-bug", "race-bug", "early-ack-bug":
+	case "correct", "duplicate-bug", "race-bug", "early-ack-bug", "replay-bug", "repair-after-crash-bug":
 	default:
 		return nil, fmt.Errorf("unknown fixture mode %q", mode)
 	}
@@ -130,6 +130,29 @@ func New(mode, journal string) (http.Handler, error) {
 			http.Error(w, "Idempotency-Key required", http.StatusBadRequest)
 			return
 		}
+		writeOperation := func(status int, id string) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(map[string]string{"operation_id": id})
+		}
+		if mode == "repair-after-crash-bug" {
+			marker := journal + ".ack"
+			if _, err := os.Stat(marker); errors.Is(err, os.ErrNotExist) {
+				if err := os.MkdirAll(filepath.Dir(marker), 0755); err != nil {
+					http.Error(w, "marker directory failed", http.StatusInternalServerError)
+					return
+				}
+				if err := os.WriteFile(marker, []byte("acknowledged"), 0600); err != nil {
+					http.Error(w, "marker write failed", http.StatusInternalServerError)
+					return
+				}
+				writeOperation(http.StatusCreated, key)
+				return
+			} else if err != nil {
+				http.Error(w, "marker read failed", http.StatusInternalServerError)
+				return
+			}
+		}
 		if mode == "early-ack-bug" {
 			go func() {
 				time.Sleep(5 * time.Second)
@@ -155,14 +178,26 @@ func New(mode, journal string) (http.Handler, error) {
 			_, _ = w.Write([]byte("applied"))
 			return
 		}
-		added, err := s.add(key, mode == "correct")
+		added, err := s.add(key, mode == "correct" || mode == "replay-bug" || mode == "repair-after-crash-bug")
 		if err != nil {
 			http.Error(w, "journal write failed", http.StatusInternalServerError)
 			return
 		}
 		if !added {
+			if mode == "correct" || mode == "replay-bug" || mode == "repair-after-crash-bug" {
+				id := key
+				if mode == "replay-bug" {
+					id += "-changed"
+				}
+				writeOperation(http.StatusOK, id)
+				return
+			}
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("already applied"))
+			return
+		}
+		if mode == "correct" || mode == "replay-bug" || mode == "repair-after-crash-bug" {
+			writeOperation(http.StatusCreated, key)
 			return
 		}
 		w.WriteHeader(http.StatusCreated)

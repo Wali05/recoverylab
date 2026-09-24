@@ -63,6 +63,7 @@ type Report struct {
 	Expected           *int64                   `json:"expected,omitempty"`
 	Observed           *int64                   `json:"observed,omitempty"`
 	Checks             []StateCheck             `json:"checks,omitempty"`
+	AfterRestartChecks []StateCheck             `json:"after_restart_checks,omitempty"`
 	RetryResponse      *ResponseCheck           `json:"retry_response,omitempty"`
 	ConcurrentResponse *ConcurrentResponseCheck `json:"concurrent_response,omitempty"`
 	FaultInjected      bool                     `json:"fault_injected"`
@@ -142,18 +143,39 @@ func Run(parent context.Context, c config.Config) (r Report) {
 	case "concurrent-duplicates":
 		err = runConcurrent(ctx, c.Request, c.Workers(), c.ConcurrentResponse, &r)
 	case "crash-after-ack":
-		err = runCrashAfterAck(ctx, c.Request, managed, &r)
+		err = runCrashAfterAck(ctx, c.Request, c.RetryResponse, managed, observations, &r)
+	}
+	var mismatches []string
+	for _, check := range r.AfterRestartChecks {
+		if check.Observed != nil && *check.Observed != check.Expected {
+			mismatches = append(mismatches, fmt.Sprintf("%s after restart expected %d, observed %d", check.Name, check.Expected, *check.Observed))
+		}
 	}
 	if err != nil {
-		r.Error = err.Error()
+		if len(mismatches) > 0 {
+			r.Status = "VIOLATION"
+			r.Error = "check failed: " + strings.Join(mismatches, "; ") + "; retry incomplete: " + err.Error()
+		} else {
+			r.Error = err.Error()
+		}
 		return r
 	}
+	if r.RetryResponse != nil {
+		mismatches = append(mismatches, r.RetryResponse.Issues...)
+	}
+	if r.ConcurrentResponse != nil {
+		mismatches = append(mismatches, r.ConcurrentResponse.Issues...)
+	}
 
-	var mismatches []string
 	for i, o := range observations {
 		final, err := observe(ctx, o)
 		if err != nil {
-			r.Error = fmt.Sprintf("final observation %q: %v", r.Checks[i].Name, err)
+			if len(mismatches) > 0 {
+				r.Status = "VIOLATION"
+				r.Error = "check failed: " + strings.Join(mismatches, "; ") + fmt.Sprintf("; final observation %q incomplete: %v", r.Checks[i].Name, err)
+			} else {
+				r.Error = fmt.Sprintf("final observation %q: %v", r.Checks[i].Name, err)
+			}
 			return r
 		}
 		r.Checks[i].Observed = &final
@@ -164,12 +186,6 @@ func Run(parent context.Context, c config.Config) (r Report) {
 		if final != r.Checks[i].Expected {
 			mismatches = append(mismatches, fmt.Sprintf("%s expected %d, observed %d", r.Checks[i].Name, r.Checks[i].Expected, final))
 		}
-	}
-	if r.RetryResponse != nil {
-		mismatches = append(mismatches, r.RetryResponse.Issues...)
-	}
-	if r.ConcurrentResponse != nil {
-		mismatches = append(mismatches, r.ConcurrentResponse.Issues...)
 	}
 	if len(mismatches) > 0 {
 		r.Status = "VIOLATION"
@@ -284,8 +300,9 @@ func runLostResponse(ctx context.Context, request config.Request, responseRule *
 	return nil
 }
 
-func runCrashAfterAck(ctx context.Context, request config.Request, managed *process, r *Report) error {
-	status, err := send(ctx, request, request.URL)
+func runCrashAfterAck(ctx context.Context, request config.Request, responseRule *config.RetryResponse, managed *process, observations []config.Observation, r *Report) error {
+	captureResponse := responseRule != nil && len(responseRule.SameJSONPointers) > 0
+	status, originalBody, err := sendWithBody(ctx, request, request.URL, captureResponse)
 	r.Attempts = append(r.Attempts, Attempt{Kind: "original", HTTPStatus: status, ClientError: errorString(err)})
 	if err != nil {
 		return fmt.Errorf("original request: %w", err)
@@ -303,6 +320,34 @@ func runCrashAfterAck(ctx context.Context, request config.Request, managed *proc
 		return fmt.Errorf("restart service: %w", err)
 	}
 	r.event("recovery", "service restarted and became ready")
+	if responseRule != nil {
+		for i, o := range observations {
+			value, err := observe(ctx, o)
+			if err != nil {
+				return fmt.Errorf("after-restart observation %q: %w", r.Checks[i].Name, err)
+			}
+			check := r.Checks[i]
+			check.Observed = &value
+			r.AfterRestartChecks = append(r.AfterRestartChecks, check)
+			r.event("after restart", fmt.Sprintf("%s: expected %d, observed %d before retry", check.Name, check.Expected, value))
+		}
+		retryStatus, retryBody, retryErr := sendWithBody(ctx, request, request.URL, captureResponse)
+		r.Attempts = append(r.Attempts, Attempt{Kind: "retry", HTTPStatus: retryStatus, ClientError: errorString(retryErr)})
+		if retryErr != nil {
+			return fmt.Errorf("retry after restart: %w", retryErr)
+		}
+		r.event("retry", fmt.Sprintf("resent the same operation after restart; HTTP %d", retryStatus))
+		check, err := checkRetryResponse(responseRule, status, originalBody, retryStatus, retryBody)
+		if err != nil {
+			return fmt.Errorf("compare post-restart retry response: %w", err)
+		}
+		r.RetryResponse = &check
+		if check.Passed {
+			r.event("retry check", "post-restart reply met the declared checks")
+		} else {
+			r.event("retry check", strings.Join(check.Issues, "; "))
+		}
+	}
 	return nil
 }
 

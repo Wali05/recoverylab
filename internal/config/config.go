@@ -31,8 +31,8 @@ type Config struct {
 	SourceDir          string              `json:"-"`
 }
 
-// RetryResponse adds checks for the reply to a lost-response retry.
-// A 2xx status is required by default, even when this field is omitted.
+// RetryResponse adds checks for a retry after a lost response or process restart.
+// Lost-response retries require 2xx by default, even when this field is omitted.
 type RetryResponse struct {
 	AllowedStatuses  []int    `json:"allowed_statuses,omitempty"`
 	SameJSONPointers []string `json:"same_json_pointers,omitempty"`
@@ -175,8 +175,8 @@ func (c Config) Validate() error {
 		return errors.New("concurrency only applies to concurrent-duplicates")
 	}
 	if c.RetryResponse != nil {
-		if c.Scenario != "lost-response" {
-			return errors.New("retry_response only applies to lost-response")
+		if c.Scenario != "lost-response" && c.Scenario != "crash-after-ack" {
+			return errors.New("retry_response only applies to lost-response or crash-after-ack")
 		}
 		if len(c.RetryResponse.AllowedStatuses) > 16 {
 			return errors.New("retry_response.allowed_statuses may contain at most 16 codes")

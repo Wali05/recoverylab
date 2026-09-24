@@ -63,9 +63,9 @@ If you'd rather build it yourself, run `go build -o recoverylab ./cmd/recoveryla
 | --- | --- | --- |
 | `lost-response` | Lets the service process a request, drops the reply, then sends the same request again. | Whether a retry repeats the side effect and whether the client gets a successful reply. |
 | `concurrent-duplicates` | Sends 2–64 copies of the same request together. | Whether this burst caused a duplicate side effect or returned a response code outside the optional list you allow. |
-| `crash-after-ack` | Starts your service, sends a request, kills its process after a 2xx response, then restarts it. | Whether the exposed state survived that process crash. |
+| `crash-after-ack` | Starts your service, sends a request, kills its process after a 2xx response, then restarts it. It can retry the same request after restart. | Whether the acknowledged effect survived, and whether the retry keeps the same result without a second effect. |
 
-RecoveryLab reads your state endpoint before and after the experiment. For each check, it compares the final integer with `baseline + expected_delta`. The lost-response test also requires a successful (2xx) retry response by default. It can only judge the state and reply you expose; a passing run is not proof that every possible side effect is safe.
+RecoveryLab reads your state endpoint before and after the experiment. For each check, it compares the observed integer with `baseline + expected_delta`. A crash scenario with a retry also checks state before that retry. Lost-response retries, and post-restart retries when enabled, require a successful (2xx) reply by default. It can only judge the state and reply you expose; a passing run is not proof that every possible side effect is safe.
 
 ## Try it against your service
 
@@ -153,7 +153,17 @@ This scenario needs a foreground service that RecoveryLab can start and kill. In
 
 The command must run the server process directly and store its data outside the process. Relative command paths use `service.working_dir`, which defaults to the scenario file's directory. Only run scenario files you trust: this command executes on your computer.
 
-RecoveryLab waits for `ready_url`, reads the baseline, sends the operation, kills the process after a 2xx response, restarts it, and reads state again. Use an endpoint whose 2xx response means the write should already be durable. This tests a **process crash after acknowledgement**; it does not crash a separate database, simulate a power loss, or choose a crash point inside your handler. See [design notes](docs/design.md) for the precise timeline.
+RecoveryLab waits for `ready_url`, reads the baseline, sends the operation, kills the process after a 2xx response, restarts it, and reads state again. Use an endpoint whose 2xx response means the write should already be durable.
+
+To also retry the same request after restart, add `"retry_response": { "same_json_pointers": ["/order_id"] }` to the scenario. RecoveryLab checks state **before** that retry, compares the two replies, then checks state once more. This catches a write that only appears because the retry repaired it, or a retry that creates a second order. The post-restart retry needs 2xx unless you declare other `allowed_statuses`. Omit `retry_response` to keep the durability-only check. With an installed `recoverylab` binary, try the [working fixture example](examples/crash-retry.json):
+
+```sh
+recoverylab run examples/crash-retry.json
+```
+
+The [PocketBase check](docs/crash-retry-check.md) shows a third-party service that duplicates the write on retry.
+
+This tests a **process crash after acknowledgement**; it does not crash a separate database, simulate a power loss, or choose a crash point inside your handler. See [design notes](docs/design.md) for the precise timeline.
 
 ## Read the result
 
@@ -166,6 +176,8 @@ RecoveryLab waits for `ready_url`, reads the baseline, sends the operation, kill
 These are the built `recoverylab` binary's exit codes. `go run` can wrap a nonzero exit; use the built binary when checking exit codes in CI.
 
 For a machine-readable report, run `go run ./cmd/recoverylab run --format json --output report.json scenario.json`. The JSON includes the request outcomes and a timestamped event timeline. The integer is selected with an [RFC 6901 JSON Pointer](https://www.rfc-editor.org/rfc/rfc6901), such as `/count`.
+
+When a crash scenario includes a post-restart retry, the JSON report has both `after_restart_checks` (before retry) and `checks` (after retry). A mismatch in either set is a `VIOLATION`.
 
 RecoveryLab accepts loopback HTTP(S) URLs only and does not follow redirects. Its current scope is one operation and up to 16 named integer checks per run. Those checks can still miss effects that your state endpoints do not show.
 

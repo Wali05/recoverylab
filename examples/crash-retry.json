@@ -1,0 +1,30 @@
+{
+  "name": "crash-retry-keeps-one-operation",
+  "scenario": "crash-after-ack",
+  "timeout": "20s",
+  "service": {
+    "command": [
+      "recoverylab",
+      "fixture",
+      "--listen", "127.0.0.1:18095",
+      "--mode", "correct",
+      "--journal", ".recoverylab/crash-retry.jsonl"
+    ],
+    "working_dir": "..",
+    "ready_url": "http://127.0.0.1:18095/health"
+  },
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:18095/operations",
+    "headers": { "Idempotency-Key": "recoverylab-{{run_id}}" },
+    "body": { "amount": 1 }
+  },
+  "observe": {
+    "url": "http://127.0.0.1:18095/state",
+    "pointer": "/count",
+    "expected_delta": 1
+  },
+  "retry_response": {
+    "same_json_pointers": ["/operation_id"]
+  }
+}

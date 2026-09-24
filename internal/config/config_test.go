@@ -104,6 +104,12 @@ func TestRetryResponseValidation(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	crash := c
+	crash.Scenario = "crash-after-ack"
+	crash.Service = &Service{Command: []string{"service"}, ReadyURL: "http://127.0.0.1:8080/health"}
+	if err := crash.Validate(); err != nil {
+		t.Fatalf("retry response should also work after restart: %v", err)
+	}
 	for _, test := range []struct {
 		name string
 		edit func(*Config)

@@ -155,6 +155,78 @@ func TestCrashAfterAcknowledgementChecksDurability(t *testing.T) {
 	}
 }
 
+func TestCrashReplayChecksResponseAcrossRestart(t *testing.T) {
+	for _, item := range []struct {
+		mode, want   string
+		replyPass    bool
+		afterRestart int64
+		retryStatus  int
+	}{
+		{"correct", "PASS", true, 1, http.StatusOK},
+		{"replay-bug", "VIOLATION", false, 1, http.StatusOK},
+		{"repair-after-crash-bug", "VIOLATION", true, 0, http.StatusCreated},
+	} {
+		t.Run(item.mode, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			addr := listener.Addr().String()
+			_ = listener.Close()
+			t.Setenv("RECOVERYLAB_HELPER", "1")
+			t.Setenv("RECOVERYLAB_MODE", item.mode)
+			t.Setenv("RECOVERYLAB_ADDR", addr)
+			t.Setenv("RECOVERYLAB_JOURNAL", filepath.Join(t.TempDir(), "journal.jsonl"))
+			exe, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			base := "http://" + addr
+			service := &config.Service{Command: []string{exe, "-test.run=^TestHelperService$"}, ReadyURL: base + "/health", StartupTimeout: "4s"}
+			c := scenario(base, "crash-after-ack", service)
+			c.RetryResponse = &config.RetryResponse{SameJSONPointers: []string{"/operation_id"}}
+			r := Run(context.Background(), c)
+			if r.Status != item.want || !r.FaultInjected || r.Observed == nil || *r.Observed != 1 || len(r.Attempts) != 2 || r.RetryResponse == nil || r.RetryResponse.Passed != item.replyPass || len(r.AfterRestartChecks) != 1 || r.AfterRestartChecks[0].Observed == nil || *r.AfterRestartChecks[0].Observed != item.afterRestart {
+				t.Fatalf("unexpected post-restart report: %+v", r)
+			}
+			if r.Attempts[0].HTTPStatus != http.StatusCreated || r.Attempts[1].HTTPStatus != item.retryStatus {
+				t.Fatalf("unexpected original/retry statuses: %+v", r.Attempts)
+			}
+			if item.mode == "replay-bug" && !strings.Contains(r.Error, "operation_id") {
+				t.Fatalf("changed operation ID was not reported: %s", r.Error)
+			}
+			if item.mode == "repair-after-crash-bug" && !strings.Contains(r.Error, "after restart expected 1, observed 0") {
+				t.Fatalf("retry masked the lost acknowledged write: %s", r.Error)
+			}
+		})
+	}
+}
+
+func TestCrashReplayKeepsKnownViolationWhenReplyCannotBeCompared(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := listener.Addr().String()
+	_ = listener.Close()
+	t.Setenv("RECOVERYLAB_HELPER", "1")
+	t.Setenv("RECOVERYLAB_MODE", "repair-after-crash-bug")
+	t.Setenv("RECOVERYLAB_ADDR", addr)
+	t.Setenv("RECOVERYLAB_JOURNAL", filepath.Join(t.TempDir(), "journal.jsonl"))
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "http://" + addr
+	service := &config.Service{Command: []string{exe, "-test.run=^TestHelperService$"}, ReadyURL: base + "/health", StartupTimeout: "4s"}
+	c := scenario(base, "crash-after-ack", service)
+	c.RetryResponse = &config.RetryResponse{SameJSONPointers: []string{"/missing"}}
+	r := Run(context.Background(), c)
+	if r.Status != "VIOLATION" || !r.FaultInjected || len(r.AfterRestartChecks) != 1 || r.AfterRestartChecks[0].Observed == nil || *r.AfterRestartChecks[0].Observed != 0 || !strings.Contains(r.Error, "after restart expected 1, observed 0") || !strings.Contains(r.Error, "retry incomplete") {
+		t.Fatalf("known durability failure became inconclusive: %+v", r)
+	}
+}
+
 func TestPointer(t *testing.T) {
 	root := map[string]any{"a/b": []any{map[string]any{"~key": 7}}}
 	v, err := atPointer(root, "/a~1b/0/~0key")

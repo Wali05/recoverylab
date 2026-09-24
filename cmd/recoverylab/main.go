@@ -72,7 +72,7 @@ Usage:
 Scenarios:
   lost-response    Hide an acknowledged response, retry, and verify state.
   concurrent-duplicates  Send 2–64 copies at once and verify state.
-  crash-after-ack  Kill and restart a managed service after acknowledgement.
+  crash-after-ack  Kill and restart a managed service; optionally retry afterward.
 
 Run "recoverylab demo" for a self-contained example with working and buggy services.
 See examples/ and README.md to test your own local service.`)
@@ -304,7 +304,7 @@ func demoResult(r engine.Report) string {
 func serveFixture(args []string) int {
 	fs := flag.NewFlagSet("fixture", flag.ContinueOnError)
 	listen := fs.String("listen", "127.0.0.1:8080", "listen address")
-	mode := fs.String("mode", "correct", "correct, duplicate-bug, race-bug, or early-ack-bug")
+	mode := fs.String("mode", "correct", "correct, duplicate-bug, race-bug, early-ack-bug, replay-bug, or repair-after-crash-bug")
 	journal := fs.String("journal", "journal.jsonl", "persistent journal path")
 	if err := fs.Parse(args); err != nil {
 		return 2

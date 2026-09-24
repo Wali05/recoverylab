@@ -1,0 +1,98 @@
+{
+  "name": "pocketbase-crash-then-retry",
+  "scenario": "crash-after-ack",
+  "run_id": "0fd978639f82f70b",
+  "status": "VIOLATION",
+  "started_at": "2026-09-24T15:40:30.096787Z",
+  "duration_ms": 459,
+  "baseline": 0,
+  "expected": 1,
+  "observed": 2,
+  "checks": [
+    {
+      "name": "state",
+      "baseline": 0,
+      "expected": 1,
+      "observed": 2
+    }
+  ],
+  "after_restart_checks": [
+    {
+      "name": "state",
+      "baseline": 0,
+      "expected": 1,
+      "observed": 1
+    }
+  ],
+  "retry_response": {
+    "original_http_status": 200,
+    "retry_http_status": 200,
+    "expected_status": "2xx",
+    "same_json_pointers": [
+      "/id"
+    ],
+    "passed": false,
+    "issues": [
+      "retry JSON value at \"/id\" differs from original or is missing"
+    ]
+  },
+  "fault_injected": true,
+  "attempts": [
+    {
+      "kind": "original",
+      "http_status": 200
+    },
+    {
+      "kind": "retry",
+      "http_status": 200
+    }
+  ],
+  "events": [
+    {
+      "at": "2026-09-24T15:40:30.3133353Z",
+      "step": "service",
+      "detail": "started and ready"
+    },
+    {
+      "at": "2026-09-24T15:40:30.3233855Z",
+      "step": "baseline",
+      "detail": "state: observed 0; expected final value 1"
+    },
+    {
+      "at": "2026-09-24T15:40:30.3249537Z",
+      "step": "ack",
+      "detail": "service acknowledged operation with HTTP 200"
+    },
+    {
+      "at": "2026-09-24T15:40:30.3341043Z",
+      "step": "fault",
+      "detail": "killed the managed service immediately after acknowledgement"
+    },
+    {
+      "at": "2026-09-24T15:40:30.5434817Z",
+      "step": "recovery",
+      "detail": "service restarted and became ready"
+    },
+    {
+      "at": "2026-09-24T15:40:30.546552Z",
+      "step": "after restart",
+      "detail": "state: expected 1, observed 1 before retry"
+    },
+    {
+      "at": "2026-09-24T15:40:30.5475998Z",
+      "step": "retry",
+      "detail": "resent the same operation after restart; HTTP 200"
+    },
+    {
+      "at": "2026-09-24T15:40:30.5475998Z",
+      "step": "retry check",
+      "detail": "retry JSON value at \"/id\" differs from original or is missing"
+    },
+    {
+      "at": "2026-09-24T15:40:30.5487342Z",
+      "step": "verify",
+      "detail": "state: expected 1, observed 2"
+    }
+  ],
+  "error": "check failed: state expected 1, observed 2; retry JSON value at \"/id\" differs from original or is missing"
+}

@@ -1,0 +1,31 @@
+{
+  "name": "pocketbase-crash-then-retry",
+  "scenario": "crash-after-ack",
+  "timeout": "30s",
+  "service": {
+    "command": [
+      "./pocketbase.exe",
+      "serve",
+      "--http=127.0.0.1:18090",
+      "--dir=./pb_data_crash_check",
+      "--migrationsDir=./pb_migrations"
+    ],
+    "working_dir": "C:/path/to/extracted/pocketbase",
+    "ready_url": "http://127.0.0.1:18090/api/health",
+    "startup_timeout": "10s"
+  },
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:18090/api/collections/retry_orders/records",
+    "headers": { "Content-Type": "application/json" },
+    "body": { "clientKey": "crash-{{run_id}}" }
+  },
+  "observe": {
+    "url": "http://127.0.0.1:18090/api/collections/retry_orders/records?perPage=1",
+    "pointer": "/totalItems",
+    "expected_delta": 1
+  },
+  "retry_response": {
+    "same_json_pointers": ["/id"]
+  }
+}
