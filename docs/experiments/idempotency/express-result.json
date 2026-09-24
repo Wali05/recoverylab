@@ -1,0 +1,71 @@
+{
+  "name": "express-idempotency-replays-operation",
+  "scenario": "lost-response",
+  "run_id": "d062cc2e019814e6",
+  "status": "PASS",
+  "started_at": "2026-09-24T14:35:46.41789Z",
+  "duration_ms": 172,
+  "baseline": 0,
+  "expected": 1,
+  "observed": 1,
+  "checks": [
+    {
+      "name": "state",
+      "baseline": 0,
+      "expected": 1,
+      "observed": 1
+    }
+  ],
+  "retry_response": {
+    "original_http_status": 201,
+    "retry_http_status": 201,
+    "expected_status": "2xx",
+    "same_json_pointers": [
+      "/operation_id"
+    ],
+    "passed": true
+  },
+  "fault_injected": true,
+  "attempts": [
+    {
+      "kind": "original",
+      "client_error": "Post \"http://127.0.0.1:54390/\": EOF"
+    },
+    {
+      "kind": "retry",
+      "http_status": 201
+    }
+  ],
+  "events": [
+    {
+      "at": "2026-09-24T14:35:46.4237073Z",
+      "step": "baseline",
+      "detail": "state: observed 0; expected final value 1"
+    },
+    {
+      "at": "2026-09-24T14:35:46.4242133Z",
+      "step": "fault",
+      "detail": "proxy will forward the operation, read the upstream response, then close the client connection without delivering it"
+    },
+    {
+      "at": "2026-09-24T14:35:46.5861061Z",
+      "step": "fault",
+      "detail": "upstream returned HTTP 201; client saw a lost response"
+    },
+    {
+      "at": "2026-09-24T14:35:46.5889978Z",
+      "step": "retry",
+      "detail": "resent the same method, URL, body, and configured headers; HTTP 201"
+    },
+    {
+      "at": "2026-09-24T14:35:46.5889978Z",
+      "step": "retry check",
+      "detail": "retry response met the declared checks"
+    },
+    {
+      "at": "2026-09-24T14:35:46.5900315Z",
+      "step": "verify",
+      "detail": "state: expected 1, observed 1"
+    }
+  ]
+}

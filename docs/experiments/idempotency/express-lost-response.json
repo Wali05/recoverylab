@@ -1,0 +1,22 @@
+{
+  "name": "express-idempotency-replays-operation",
+  "scenario": "lost-response",
+  "timeout": "20s",
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:18080/operations",
+    "headers": {
+      "Content-Type": "application/json",
+      "Idempotency-Key": "recoverylab-{{run_id}}"
+    },
+    "body": { "amount": 17 }
+  },
+  "observe": {
+    "url": "http://127.0.0.1:18080/state",
+    "pointer": "/count",
+    "expected_delta": 1
+  },
+  "retry_response": {
+    "same_json_pointers": ["/operation_id"]
+  }
+}

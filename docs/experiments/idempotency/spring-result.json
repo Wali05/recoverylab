@@ -1,0 +1,71 @@
+{
+  "name": "spring-starter-replays-payment",
+  "scenario": "lost-response",
+  "run_id": "a7f904595ea56778",
+  "status": "PASS",
+  "started_at": "2026-09-24T14:38:20.1700251Z",
+  "duration_ms": 219,
+  "baseline": 0,
+  "expected": 1,
+  "observed": 1,
+  "checks": [
+    {
+      "name": "state",
+      "baseline": 0,
+      "expected": 1,
+      "observed": 1
+    }
+  ],
+  "retry_response": {
+    "original_http_status": 201,
+    "retry_http_status": 201,
+    "expected_status": "2xx",
+    "same_json_pointers": [
+      "/paymentId"
+    ],
+    "passed": true
+  },
+  "fault_injected": true,
+  "attempts": [
+    {
+      "kind": "original",
+      "client_error": "Post \"http://127.0.0.1:53971/\": EOF"
+    },
+    {
+      "kind": "retry",
+      "http_status": 201
+    }
+  ],
+  "events": [
+    {
+      "at": "2026-09-24T14:38:20.3051255Z",
+      "step": "baseline",
+      "detail": "state: observed 0; expected final value 1"
+    },
+    {
+      "at": "2026-09-24T14:38:20.3056294Z",
+      "step": "fault",
+      "detail": "proxy will forward the operation, read the upstream response, then close the client connection without delivering it"
+    },
+    {
+      "at": "2026-09-24T14:38:20.3807183Z",
+      "step": "fault",
+      "detail": "upstream returned HTTP 201; client saw a lost response"
+    },
+    {
+      "at": "2026-09-24T14:38:20.3852589Z",
+      "step": "retry",
+      "detail": "resent the same method, URL, body, and configured headers; HTTP 201"
+    },
+    {
+      "at": "2026-09-24T14:38:20.3852589Z",
+      "step": "retry check",
+      "detail": "retry response met the declared checks"
+    },
+    {
+      "at": "2026-09-24T14:38:20.3893097Z",
+      "step": "verify",
+      "detail": "state: expected 1, observed 1"
+    }
+  ]
+}

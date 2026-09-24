@@ -1,0 +1,759 @@
+{
+  "status": "VIOLATION",
+  "runs": 10,
+  "passed": 0,
+  "violations": 10,
+  "errors": 0,
+  "reports": [
+    {
+      "name": "idemptx-replays-operation",
+      "scenario": "lost-response",
+      "run_id": "5dc093f69f0a106a",
+      "status": "VIOLATION",
+      "started_at": "2026-09-24T14:38:50.2168768Z",
+      "duration_ms": 11,
+      "baseline": 2,
+      "expected": 3,
+      "observed": 4,
+      "checks": [
+        {
+          "name": "state",
+          "baseline": 2,
+          "expected": 3,
+          "observed": 4
+        }
+      ],
+      "retry_response": {
+        "original_http_status": 201,
+        "retry_http_status": 201,
+        "expected_status": "2xx",
+        "same_json_pointers": [
+          "/operation_id"
+        ],
+        "passed": false,
+        "issues": [
+          "retry JSON value at \"/operation_id\" differs from original or is missing"
+        ]
+      },
+      "fault_injected": true,
+      "attempts": [
+        {
+          "kind": "original",
+          "client_error": "Post \"http://127.0.0.1:52371/\": EOF"
+        },
+        {
+          "kind": "retry",
+          "http_status": 201
+        }
+      ],
+      "events": [
+        {
+          "at": "2026-09-24T14:38:50.2210375Z",
+          "step": "baseline",
+          "detail": "state: observed 2; expected final value 3"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2215419Z",
+          "step": "fault",
+          "detail": "proxy will forward the operation, read the upstream response, then close the client connection without delivering it"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2240514Z",
+          "step": "fault",
+          "detail": "upstream returned HTTP 201; client saw a lost response"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2265277Z",
+          "step": "retry",
+          "detail": "resent the same method, URL, body, and configured headers; HTTP 201"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2265277Z",
+          "step": "retry check",
+          "detail": "retry JSON value at \"/operation_id\" differs from original or is missing"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2283206Z",
+          "step": "verify",
+          "detail": "state: expected 3, observed 4"
+        }
+      ],
+      "error": "check failed: state expected 3, observed 4; retry JSON value at \"/operation_id\" differs from original or is missing"
+    },
+    {
+      "name": "idemptx-replays-operation",
+      "scenario": "lost-response",
+      "run_id": "8044eb2d724878e6",
+      "status": "VIOLATION",
+      "started_at": "2026-09-24T14:38:50.2283206Z",
+      "duration_ms": 6,
+      "baseline": 4,
+      "expected": 5,
+      "observed": 6,
+      "checks": [
+        {
+          "name": "state",
+          "baseline": 4,
+          "expected": 5,
+          "observed": 6
+        }
+      ],
+      "retry_response": {
+        "original_http_status": 201,
+        "retry_http_status": 201,
+        "expected_status": "2xx",
+        "same_json_pointers": [
+          "/operation_id"
+        ],
+        "passed": false,
+        "issues": [
+          "retry JSON value at \"/operation_id\" differs from original or is missing"
+        ]
+      },
+      "fault_injected": true,
+      "attempts": [
+        {
+          "kind": "original",
+          "client_error": "Post \"http://127.0.0.1:52377/\": EOF"
+        },
+        {
+          "kind": "retry",
+          "http_status": 201
+        }
+      ],
+      "events": [
+        {
+          "at": "2026-09-24T14:38:50.2299478Z",
+          "step": "baseline",
+          "detail": "state: observed 4; expected final value 5"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2299478Z",
+          "step": "fault",
+          "detail": "proxy will forward the operation, read the upstream response, then close the client connection without delivering it"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2317778Z",
+          "step": "fault",
+          "detail": "upstream returned HTTP 201; client saw a lost response"
+        },
+        {
+          "at": "2026-09-24T14:38:50.233742Z",
+          "step": "retry",
+          "detail": "resent the same method, URL, body, and configured headers; HTTP 201"
+        },
+        {
+          "at": "2026-09-24T14:38:50.233742Z",
+          "step": "retry check",
+          "detail": "retry JSON value at \"/operation_id\" differs from original or is missing"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2353047Z",
+          "step": "verify",
+          "detail": "state: expected 5, observed 6"
+        }
+      ],
+      "error": "check failed: state expected 5, observed 6; retry JSON value at \"/operation_id\" differs from original or is missing"
+    },
+    {
+      "name": "idemptx-replays-operation",
+      "scenario": "lost-response",
+      "run_id": "622269f1bd573d12",
+      "status": "VIOLATION",
+      "started_at": "2026-09-24T14:38:50.2353047Z",
+      "duration_ms": 6,
+      "baseline": 6,
+      "expected": 7,
+      "observed": 8,
+      "checks": [
+        {
+          "name": "state",
+          "baseline": 6,
+          "expected": 7,
+          "observed": 8
+        }
+      ],
+      "retry_response": {
+        "original_http_status": 201,
+        "retry_http_status": 201,
+        "expected_status": "2xx",
+        "same_json_pointers": [
+          "/operation_id"
+        ],
+        "passed": false,
+        "issues": [
+          "retry JSON value at \"/operation_id\" differs from original or is missing"
+        ]
+      },
+      "fault_injected": true,
+      "attempts": [
+        {
+          "kind": "original",
+          "client_error": "Post \"http://127.0.0.1:52383/\": EOF"
+        },
+        {
+          "kind": "retry",
+          "http_status": 201
+        }
+      ],
+      "events": [
+        {
+          "at": "2026-09-24T14:38:50.2365099Z",
+          "step": "baseline",
+          "detail": "state: observed 6; expected final value 7"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2365099Z",
+          "step": "fault",
+          "detail": "proxy will forward the operation, read the upstream response, then close the client connection without delivering it"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2385586Z",
+          "step": "fault",
+          "detail": "upstream returned HTTP 201; client saw a lost response"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2402204Z",
+          "step": "retry",
+          "detail": "resent the same method, URL, body, and configured headers; HTTP 201"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2402204Z",
+          "step": "retry check",
+          "detail": "retry JSON value at \"/operation_id\" differs from original or is missing"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2419614Z",
+          "step": "verify",
+          "detail": "state: expected 7, observed 8"
+        }
+      ],
+      "error": "check failed: state expected 7, observed 8; retry JSON value at \"/operation_id\" differs from original or is missing"
+    },
+    {
+      "name": "idemptx-replays-operation",
+      "scenario": "lost-response",
+      "run_id": "aee55311404515cf",
+      "status": "VIOLATION",
+      "started_at": "2026-09-24T14:38:50.2419614Z",
+      "duration_ms": 5,
+      "baseline": 8,
+      "expected": 9,
+      "observed": 10,
+      "checks": [
+        {
+          "name": "state",
+          "baseline": 8,
+          "expected": 9,
+          "observed": 10
+        }
+      ],
+      "retry_response": {
+        "original_http_status": 201,
+        "retry_http_status": 201,
+        "expected_status": "2xx",
+        "same_json_pointers": [
+          "/operation_id"
+        ],
+        "passed": false,
+        "issues": [
+          "retry JSON value at \"/operation_id\" differs from original or is missing"
+        ]
+      },
+      "fault_injected": true,
+      "attempts": [
+        {
+          "kind": "original",
+          "client_error": "Post \"http://127.0.0.1:52389/\": EOF"
+        },
+        {
+          "kind": "retry",
+          "http_status": 201
+        }
+      ],
+      "events": [
+        {
+          "at": "2026-09-24T14:38:50.2429927Z",
+          "step": "baseline",
+          "detail": "state: observed 8; expected final value 9"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2429927Z",
+          "step": "fault",
+          "detail": "proxy will forward the operation, read the upstream response, then close the client connection without delivering it"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2441683Z",
+          "step": "fault",
+          "detail": "upstream returned HTTP 201; client saw a lost response"
+        },
+        {
+          "at": "2026-09-24T14:38:50.246414Z",
+          "step": "retry",
+          "detail": "resent the same method, URL, body, and configured headers; HTTP 201"
+        },
+        {
+          "at": "2026-09-24T14:38:50.246414Z",
+          "step": "retry check",
+          "detail": "retry JSON value at \"/operation_id\" differs from original or is missing"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2474348Z",
+          "step": "verify",
+          "detail": "state: expected 9, observed 10"
+        }
+      ],
+      "error": "check failed: state expected 9, observed 10; retry JSON value at \"/operation_id\" differs from original or is missing"
+    },
+    {
+      "name": "idemptx-replays-operation",
+      "scenario": "lost-response",
+      "run_id": "d39d8844542dcf97",
+      "status": "VIOLATION",
+      "started_at": "2026-09-24T14:38:50.2474348Z",
+      "duration_ms": 4,
+      "baseline": 10,
+      "expected": 11,
+      "observed": 12,
+      "checks": [
+        {
+          "name": "state",
+          "baseline": 10,
+          "expected": 11,
+          "observed": 12
+        }
+      ],
+      "retry_response": {
+        "original_http_status": 201,
+        "retry_http_status": 201,
+        "expected_status": "2xx",
+        "same_json_pointers": [
+          "/operation_id"
+        ],
+        "passed": false,
+        "issues": [
+          "retry JSON value at \"/operation_id\" differs from original or is missing"
+        ]
+      },
+      "fault_injected": true,
+      "attempts": [
+        {
+          "kind": "original",
+          "client_error": "Post \"http://127.0.0.1:52395/\": EOF"
+        },
+        {
+          "kind": "retry",
+          "http_status": 201
+        }
+      ],
+      "events": [
+        {
+          "at": "2026-09-24T14:38:50.2484647Z",
+          "step": "baseline",
+          "detail": "state: observed 10; expected final value 11"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2484647Z",
+          "step": "fault",
+          "detail": "proxy will forward the operation, read the upstream response, then close the client connection without delivering it"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2502226Z",
+          "step": "fault",
+          "detail": "upstream returned HTTP 201; client saw a lost response"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2512547Z",
+          "step": "retry",
+          "detail": "resent the same method, URL, body, and configured headers; HTTP 201"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2512547Z",
+          "step": "retry check",
+          "detail": "retry JSON value at \"/operation_id\" differs from original or is missing"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2523284Z",
+          "step": "verify",
+          "detail": "state: expected 11, observed 12"
+        }
+      ],
+      "error": "check failed: state expected 11, observed 12; retry JSON value at \"/operation_id\" differs from original or is missing"
+    },
+    {
+      "name": "idemptx-replays-operation",
+      "scenario": "lost-response",
+      "run_id": "066f2feadbb76592",
+      "status": "VIOLATION",
+      "started_at": "2026-09-24T14:38:50.2523284Z",
+      "duration_ms": 4,
+      "baseline": 12,
+      "expected": 13,
+      "observed": 14,
+      "checks": [
+        {
+          "name": "state",
+          "baseline": 12,
+          "expected": 13,
+          "observed": 14
+        }
+      ],
+      "retry_response": {
+        "original_http_status": 201,
+        "retry_http_status": 201,
+        "expected_status": "2xx",
+        "same_json_pointers": [
+          "/operation_id"
+        ],
+        "passed": false,
+        "issues": [
+          "retry JSON value at \"/operation_id\" differs from original or is missing"
+        ]
+      },
+      "fault_injected": true,
+      "attempts": [
+        {
+          "kind": "original",
+          "client_error": "Post \"http://127.0.0.1:52401/\": EOF"
+        },
+        {
+          "kind": "retry",
+          "http_status": 201
+        }
+      ],
+      "events": [
+        {
+          "at": "2026-09-24T14:38:50.25325Z",
+          "step": "baseline",
+          "detail": "state: observed 12; expected final value 13"
+        },
+        {
+          "at": "2026-09-24T14:38:50.25325Z",
+          "step": "fault",
+          "detail": "proxy will forward the operation, read the upstream response, then close the client connection without delivering it"
+        },
+        {
+          "at": "2026-09-24T14:38:50.254942Z",
+          "step": "fault",
+          "detail": "upstream returned HTTP 201; client saw a lost response"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2560117Z",
+          "step": "retry",
+          "detail": "resent the same method, URL, body, and configured headers; HTTP 201"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2560117Z",
+          "step": "retry check",
+          "detail": "retry JSON value at \"/operation_id\" differs from original or is missing"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2569558Z",
+          "step": "verify",
+          "detail": "state: expected 13, observed 14"
+        }
+      ],
+      "error": "check failed: state expected 13, observed 14; retry JSON value at \"/operation_id\" differs from original or is missing"
+    },
+    {
+      "name": "idemptx-replays-operation",
+      "scenario": "lost-response",
+      "run_id": "618f2e5852d1c8c1",
+      "status": "VIOLATION",
+      "started_at": "2026-09-24T14:38:50.2569558Z",
+      "duration_ms": 6,
+      "baseline": 14,
+      "expected": 15,
+      "observed": 16,
+      "checks": [
+        {
+          "name": "state",
+          "baseline": 14,
+          "expected": 15,
+          "observed": 16
+        }
+      ],
+      "retry_response": {
+        "original_http_status": 201,
+        "retry_http_status": 201,
+        "expected_status": "2xx",
+        "same_json_pointers": [
+          "/operation_id"
+        ],
+        "passed": false,
+        "issues": [
+          "retry JSON value at \"/operation_id\" differs from original or is missing"
+        ]
+      },
+      "fault_injected": true,
+      "attempts": [
+        {
+          "kind": "original",
+          "client_error": "Post \"http://127.0.0.1:52407/\": EOF"
+        },
+        {
+          "kind": "retry",
+          "http_status": 201
+        }
+      ],
+      "events": [
+        {
+          "at": "2026-09-24T14:38:50.2581688Z",
+          "step": "baseline",
+          "detail": "state: observed 14; expected final value 15"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2581688Z",
+          "step": "fault",
+          "detail": "proxy will forward the operation, read the upstream response, then close the client connection without delivering it"
+        },
+        {
+          "at": "2026-09-24T14:38:50.259742Z",
+          "step": "fault",
+          "detail": "upstream returned HTTP 201; client saw a lost response"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2612066Z",
+          "step": "retry",
+          "detail": "resent the same method, URL, body, and configured headers; HTTP 201"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2612066Z",
+          "step": "retry check",
+          "detail": "retry JSON value at \"/operation_id\" differs from original or is missing"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2631355Z",
+          "step": "verify",
+          "detail": "state: expected 15, observed 16"
+        }
+      ],
+      "error": "check failed: state expected 15, observed 16; retry JSON value at \"/operation_id\" differs from original or is missing"
+    },
+    {
+      "name": "idemptx-replays-operation",
+      "scenario": "lost-response",
+      "run_id": "3bf21e588feb9b43",
+      "status": "VIOLATION",
+      "started_at": "2026-09-24T14:38:50.2631355Z",
+      "duration_ms": 5,
+      "baseline": 16,
+      "expected": 17,
+      "observed": 18,
+      "checks": [
+        {
+          "name": "state",
+          "baseline": 16,
+          "expected": 17,
+          "observed": 18
+        }
+      ],
+      "retry_response": {
+        "original_http_status": 201,
+        "retry_http_status": 201,
+        "expected_status": "2xx",
+        "same_json_pointers": [
+          "/operation_id"
+        ],
+        "passed": false,
+        "issues": [
+          "retry JSON value at \"/operation_id\" differs from original or is missing"
+        ]
+      },
+      "fault_injected": true,
+      "attempts": [
+        {
+          "kind": "original",
+          "client_error": "Post \"http://127.0.0.1:52413/\": EOF"
+        },
+        {
+          "kind": "retry",
+          "http_status": 201
+        }
+      ],
+      "events": [
+        {
+          "at": "2026-09-24T14:38:50.2641551Z",
+          "step": "baseline",
+          "detail": "state: observed 16; expected final value 17"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2641551Z",
+          "step": "fault",
+          "detail": "proxy will forward the operation, read the upstream response, then close the client connection without delivering it"
+        },
+        {
+          "at": "2026-09-24T14:38:50.266753Z",
+          "step": "fault",
+          "detail": "upstream returned HTTP 201; client saw a lost response"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2679168Z",
+          "step": "retry",
+          "detail": "resent the same method, URL, body, and configured headers; HTTP 201"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2679168Z",
+          "step": "retry check",
+          "detail": "retry JSON value at \"/operation_id\" differs from original or is missing"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2690009Z",
+          "step": "verify",
+          "detail": "state: expected 17, observed 18"
+        }
+      ],
+      "error": "check failed: state expected 17, observed 18; retry JSON value at \"/operation_id\" differs from original or is missing"
+    },
+    {
+      "name": "idemptx-replays-operation",
+      "scenario": "lost-response",
+      "run_id": "5aa7ad0c3cecf9c4",
+      "status": "VIOLATION",
+      "started_at": "2026-09-24T14:38:50.2690009Z",
+      "duration_ms": 5,
+      "baseline": 18,
+      "expected": 19,
+      "observed": 20,
+      "checks": [
+        {
+          "name": "state",
+          "baseline": 18,
+          "expected": 19,
+          "observed": 20
+        }
+      ],
+      "retry_response": {
+        "original_http_status": 201,
+        "retry_http_status": 201,
+        "expected_status": "2xx",
+        "same_json_pointers": [
+          "/operation_id"
+        ],
+        "passed": false,
+        "issues": [
+          "retry JSON value at \"/operation_id\" differs from original or is missing"
+        ]
+      },
+      "fault_injected": true,
+      "attempts": [
+        {
+          "kind": "original",
+          "client_error": "Post \"http://127.0.0.1:52419/\": EOF"
+        },
+        {
+          "kind": "retry",
+          "http_status": 201
+        }
+      ],
+      "events": [
+        {
+          "at": "2026-09-24T14:38:50.270154Z",
+          "step": "baseline",
+          "detail": "state: observed 18; expected final value 19"
+        },
+        {
+          "at": "2026-09-24T14:38:50.270154Z",
+          "step": "fault",
+          "detail": "proxy will forward the operation, read the upstream response, then close the client connection without delivering it"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2720441Z",
+          "step": "fault",
+          "detail": "upstream returned HTTP 201; client saw a lost response"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2731492Z",
+          "step": "retry",
+          "detail": "resent the same method, URL, body, and configured headers; HTTP 201"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2731492Z",
+          "step": "retry check",
+          "detail": "retry JSON value at \"/operation_id\" differs from original or is missing"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2741668Z",
+          "step": "verify",
+          "detail": "state: expected 19, observed 20"
+        }
+      ],
+      "error": "check failed: state expected 19, observed 20; retry JSON value at \"/operation_id\" differs from original or is missing"
+    },
+    {
+      "name": "idemptx-replays-operation",
+      "scenario": "lost-response",
+      "run_id": "1f3a68145bea5774",
+      "status": "VIOLATION",
+      "started_at": "2026-09-24T14:38:50.2741668Z",
+      "duration_ms": 5,
+      "baseline": 20,
+      "expected": 21,
+      "observed": 22,
+      "checks": [
+        {
+          "name": "state",
+          "baseline": 20,
+          "expected": 21,
+          "observed": 22
+        }
+      ],
+      "retry_response": {
+        "original_http_status": 201,
+        "retry_http_status": 201,
+        "expected_status": "2xx",
+        "same_json_pointers": [
+          "/operation_id"
+        ],
+        "passed": false,
+        "issues": [
+          "retry JSON value at \"/operation_id\" differs from original or is missing"
+        ]
+      },
+      "fault_injected": true,
+      "attempts": [
+        {
+          "kind": "original",
+          "client_error": "Post \"http://127.0.0.1:52426/\": EOF"
+        },
+        {
+          "kind": "retry",
+          "http_status": 201
+        }
+      ],
+      "events": [
+        {
+          "at": "2026-09-24T14:38:50.2758802Z",
+          "step": "baseline",
+          "detail": "state: observed 20; expected final value 21"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2758802Z",
+          "step": "fault",
+          "detail": "proxy will forward the operation, read the upstream response, then close the client connection without delivering it"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2775632Z",
+          "step": "fault",
+          "detail": "upstream returned HTTP 201; client saw a lost response"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2788622Z",
+          "step": "retry",
+          "detail": "resent the same method, URL, body, and configured headers; HTTP 201"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2788622Z",
+          "step": "retry check",
+          "detail": "retry JSON value at \"/operation_id\" differs from original or is missing"
+        },
+        {
+          "at": "2026-09-24T14:38:50.2798805Z",
+          "step": "verify",
+          "detail": "state: expected 21, observed 22"
+        }
+      ],
+      "error": "check failed: state expected 21, observed 22; retry JSON value at \"/operation_id\" differs from original or is missing"
+    }
+  ]
+}

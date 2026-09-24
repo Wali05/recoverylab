@@ -2,6 +2,8 @@
 
 On 24 September 2026, I ran the published [RecoveryLab v0.1.2](https://github.com/Wali05/recoverylab/releases/tag/v0.1.2) Windows binary against two unrelated open-source projects. I verified its release checksum before running it. Both services and their data stayed on my machine.
 
+I later reran the Spring sample with RecoveryLab v0.2.0 and checked that `/paymentId` matched after the lost reply. That run and two other projects with explicit idempotency promises are in the [contract checks](idempotency-contract-checks.md).
+
 | Service and request | Result | RecoveryLab verdict |
 | --- | --- | --- |
 | [PocketBase v0.40.4](https://github.com/pocketbase/pocketbase/releases/tag/v0.40.4): create a record, lose the reply, retry | Record count `0 → 2`; the scenario expected `1` | `VIOLATION`, exit 1 |

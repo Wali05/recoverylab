@@ -1,0 +1,75 @@
+{
+  "name": "express-idempotency-replays-operation",
+  "scenario": "lost-response",
+  "run_id": "0571512ab52b0787",
+  "status": "VIOLATION",
+  "started_at": "2026-09-24T14:36:24.3246054Z",
+  "duration_ms": 22,
+  "baseline": 0,
+  "expected": 1,
+  "observed": 2,
+  "checks": [
+    {
+      "name": "state",
+      "baseline": 0,
+      "expected": 1,
+      "observed": 2
+    }
+  ],
+  "retry_response": {
+    "original_http_status": 201,
+    "retry_http_status": 201,
+    "expected_status": "2xx",
+    "same_json_pointers": [
+      "/operation_id"
+    ],
+    "passed": false,
+    "issues": [
+      "retry JSON value at \"/operation_id\" differs from original or is missing"
+    ]
+  },
+  "fault_injected": true,
+  "attempts": [
+    {
+      "kind": "original",
+      "client_error": "Post \"http://127.0.0.1:53311/\": EOF"
+    },
+    {
+      "kind": "retry",
+      "http_status": 201
+    }
+  ],
+  "events": [
+    {
+      "at": "2026-09-24T14:36:24.3281238Z",
+      "step": "baseline",
+      "detail": "state: observed 0; expected final value 1"
+    },
+    {
+      "at": "2026-09-24T14:36:24.3281238Z",
+      "step": "fault",
+      "detail": "proxy will forward the operation, read the upstream response, then close the client connection without delivering it"
+    },
+    {
+      "at": "2026-09-24T14:36:24.3393165Z",
+      "step": "fault",
+      "detail": "upstream returned HTTP 201; client saw a lost response"
+    },
+    {
+      "at": "2026-09-24T14:36:24.3422628Z",
+      "step": "retry",
+      "detail": "resent the same method, URL, body, and configured headers; HTTP 201"
+    },
+    {
+      "at": "2026-09-24T14:36:24.3433303Z",
+      "step": "retry check",
+      "detail": "retry JSON value at \"/operation_id\" differs from original or is missing"
+    },
+    {
+      "at": "2026-09-24T14:36:24.3468781Z",
+      "step": "verify",
+      "detail": "state: expected 1, observed 2"
+    }
+  ],
+  "error": "check failed: state expected 1, observed 2; retry JSON value at \"/operation_id\" differs from original or is missing"
+}
