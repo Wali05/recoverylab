@@ -18,15 +18,23 @@ import (
 
 // Config describes one reproducible failure experiment.
 type Config struct {
-	Name        string        `json:"name"`
-	Scenario    string        `json:"scenario"`
-	Timeout     string        `json:"timeout,omitempty"`
-	Concurrency int           `json:"concurrency,omitempty"`
-	Service     *Service      `json:"service,omitempty"`
-	Request     Request       `json:"request"`
-	Observe     Observation   `json:"observe,omitempty"`
-	Checks      []Observation `json:"checks,omitempty"`
-	SourceDir   string        `json:"-"`
+	Name          string         `json:"name"`
+	Scenario      string         `json:"scenario"`
+	Timeout       string         `json:"timeout,omitempty"`
+	Concurrency   int            `json:"concurrency,omitempty"`
+	Service       *Service       `json:"service,omitempty"`
+	Request       Request        `json:"request"`
+	Observe       Observation    `json:"observe,omitempty"`
+	Checks        []Observation  `json:"checks,omitempty"`
+	RetryResponse *RetryResponse `json:"retry_response,omitempty"`
+	SourceDir     string         `json:"-"`
+}
+
+// RetryResponse adds checks for the reply to a lost-response retry.
+// A 2xx status is required by default, even when this field is omitted.
+type RetryResponse struct {
+	AllowedStatuses  []int    `json:"allowed_statuses,omitempty"`
+	SameJSONPointers []string `json:"same_json_pointers,omitempty"`
 }
 
 type Service struct {
@@ -158,6 +166,31 @@ func (c Config) Validate() error {
 		}
 	} else if c.Concurrency != 0 {
 		return errors.New("concurrency only applies to concurrent-duplicates")
+	}
+	if c.RetryResponse != nil {
+		if c.Scenario != "lost-response" {
+			return errors.New("retry_response only applies to lost-response")
+		}
+		if len(c.RetryResponse.AllowedStatuses) > 16 {
+			return errors.New("retry_response.allowed_statuses may contain at most 16 codes")
+		}
+		seenStatuses := map[int]bool{}
+		for _, status := range c.RetryResponse.AllowedStatuses {
+			if status < 200 || status > 599 || seenStatuses[status] {
+				return errors.New("retry_response.allowed_statuses must contain distinct HTTP codes from 200 to 599")
+			}
+			seenStatuses[status] = true
+		}
+		if len(c.RetryResponse.SameJSONPointers) > 16 {
+			return errors.New("retry_response.same_json_pointers may contain at most 16 pointers")
+		}
+		seenPointers := map[string]bool{}
+		for _, pointer := range c.RetryResponse.SameJSONPointers {
+			if !ValidJSONPointer(pointer) || seenPointers[pointer] {
+				return fmt.Errorf("retry_response.same_json_pointers contains an invalid or duplicate JSON pointer %q", pointer)
+			}
+			seenPointers[pointer] = true
+		}
 	}
 	if c.Timeout != "" {
 		d, err := time.ParseDuration(c.Timeout)

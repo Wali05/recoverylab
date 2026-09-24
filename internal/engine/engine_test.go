@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -229,6 +230,99 @@ func TestTruncatedAcknowledgementIsInconclusive(t *testing.T) {
 	r := Run(context.Background(), scenario(server.URL, "lost-response", nil))
 	if r.Status != "ERROR" || r.FaultInjected {
 		t.Fatalf("truncated reply must not count as a completed acknowledgement: %+v", r)
+	}
+}
+
+func TestLostResponseChecksRetryStatusAndJSONValue(t *testing.T) {
+	for _, test := range []struct {
+		name, retryBody string
+		retryStatus     int
+		want            string
+		issue           string
+	}{
+		{"same order, 200 retry", `{"order_id":"ord-1"}`, http.StatusOK, "PASS", ""},
+		{"retry error with one order", `{"error":"duplicate"}`, http.StatusConflict, "VIOLATION", "retry returned HTTP 409"},
+		{"different order ID with one order", `{"order_id":"ord-2"}`, http.StatusOK, "VIOLATION", `/order_id`},
+		{"missing order ID with one order", `{"ok":true}`, http.StatusOK, "VIOLATION", `/order_id`},
+		{"invalid retry JSON with one order", `not-json`, http.StatusOK, "VIOLATION", "not usable JSON"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var mu sync.Mutex
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				defer mu.Unlock()
+				if r.URL.Path == "/state" {
+					count := 0
+					if calls > 0 {
+						count = 1
+					}
+					_ = json.NewEncoder(w).Encode(map[string]int{"count": count})
+					return
+				}
+				calls++
+				w.Header().Set("Content-Type", "application/json")
+				if calls == 1 {
+					w.WriteHeader(http.StatusCreated)
+					_, _ = w.Write([]byte(`{"order_id":"ord-1"}`))
+					return
+				}
+				w.WriteHeader(test.retryStatus)
+				_, _ = w.Write([]byte(test.retryBody))
+			}))
+			defer server.Close()
+			c := scenario(server.URL, "lost-response", nil)
+			c.RetryResponse = &config.RetryResponse{SameJSONPointers: []string{"/order_id"}}
+			report := Run(context.Background(), c)
+			if report.Status != test.want || report.RetryResponse == nil || report.RetryResponse.Passed != (test.want == "PASS") || report.Observed == nil || *report.Observed != 1 {
+				t.Fatalf("unexpected report: %+v", report)
+			}
+			if test.issue != "" && !strings.Contains(report.Error, test.issue) {
+				t.Fatalf("missing %q in %q", test.issue, report.Error)
+			}
+			if strings.Contains(report.Error, "ord-1") || strings.Contains(report.Error, "ord-2") {
+				t.Fatal("response values leaked into the report")
+			}
+		})
+	}
+}
+
+func TestLostResponseRejectsErrorRetryByDefault(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/state" {
+			count := 0
+			if calls > 0 {
+				count = 1
+			}
+			_ = json.NewEncoder(w).Encode(map[string]int{"count": count})
+			return
+		}
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusConflict)
+	}))
+	defer server.Close()
+	report := Run(context.Background(), scenario(server.URL, "lost-response", nil))
+	if report.Status != "VIOLATION" || report.RetryResponse == nil || report.RetryResponse.ExpectedStatus != "2xx" || report.Observed == nil || *report.Observed != 1 {
+		t.Fatalf("a rejected retry must fail even when the count is right: %+v", report)
+	}
+}
+
+func TestLostResponseAllowsContractualConflict(t *testing.T) {
+	check, err := checkRetryResponse(&config.RetryResponse{AllowedStatuses: []int{http.StatusConflict}}, http.StatusCreated, nil, http.StatusConflict, nil)
+	if err != nil || !check.Passed || check.ExpectedStatus != "409" {
+		t.Fatalf("explicitly allowed status: %+v, %v", check, err)
+	}
+}
+
+func TestLostResponseMissingOriginalPointerIsInconclusive(t *testing.T) {
+	_, err := checkRetryResponse(&config.RetryResponse{SameJSONPointers: []string{"/id"}}, http.StatusCreated, []byte(`{"other":1}`), http.StatusOK, []byte(`{"id":1}`))
+	if err == nil || !strings.Contains(err.Error(), "original response") {
+		t.Fatalf("expected an original-response setup error, got %v", err)
 	}
 }
 

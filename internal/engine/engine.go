@@ -37,21 +37,31 @@ type StateCheck struct {
 	Observed *int64 `json:"observed,omitempty"`
 }
 
+type ResponseCheck struct {
+	OriginalHTTPStatus int      `json:"original_http_status"`
+	RetryHTTPStatus    int      `json:"retry_http_status"`
+	ExpectedStatus     string   `json:"expected_status"`
+	SameJSONPointers   []string `json:"same_json_pointers,omitempty"`
+	Passed             bool     `json:"passed"`
+	Issues             []string `json:"issues,omitempty"`
+}
+
 type Report struct {
-	Name          string       `json:"name"`
-	Scenario      string       `json:"scenario"`
-	RunID         string       `json:"run_id"`
-	Status        string       `json:"status"`
-	StartedAt     string       `json:"started_at"`
-	DurationMS    int64        `json:"duration_ms"`
-	Baseline      *int64       `json:"baseline,omitempty"`
-	Expected      *int64       `json:"expected,omitempty"`
-	Observed      *int64       `json:"observed,omitempty"`
-	Checks        []StateCheck `json:"checks,omitempty"`
-	FaultInjected bool         `json:"fault_injected"`
-	Attempts      []Attempt    `json:"attempts"`
-	Events        []Event      `json:"events"`
-	Error         string       `json:"error,omitempty"`
+	Name          string         `json:"name"`
+	Scenario      string         `json:"scenario"`
+	RunID         string         `json:"run_id"`
+	Status        string         `json:"status"`
+	StartedAt     string         `json:"started_at"`
+	DurationMS    int64          `json:"duration_ms"`
+	Baseline      *int64         `json:"baseline,omitempty"`
+	Expected      *int64         `json:"expected,omitempty"`
+	Observed      *int64         `json:"observed,omitempty"`
+	Checks        []StateCheck   `json:"checks,omitempty"`
+	RetryResponse *ResponseCheck `json:"retry_response,omitempty"`
+	FaultInjected bool           `json:"fault_injected"`
+	Attempts      []Attempt      `json:"attempts"`
+	Events        []Event        `json:"events"`
+	Error         string         `json:"error,omitempty"`
 }
 
 func (r *Report) event(step, detail string) {
@@ -59,7 +69,7 @@ func (r *Report) event(step, detail string) {
 }
 
 // Run performs one experiment. ERROR means the experiment was inconclusive;
-// VIOLATION means it ran and observed a state different from the declared invariant.
+// VIOLATION means a state or retry-response check failed.
 func Run(parent context.Context, c config.Config) (r Report) {
 	start := time.Now()
 	r = Report{Name: c.Name, Scenario: c.Scenario, Status: "ERROR", StartedAt: start.UTC().Format(time.RFC3339Nano), Attempts: []Attempt{}, Events: []Event{}}
@@ -121,7 +131,7 @@ func Run(parent context.Context, c config.Config) (r Report) {
 
 	switch c.Scenario {
 	case "lost-response":
-		err = runLostResponse(ctx, c.Request, &r)
+		err = runLostResponse(ctx, c.Request, c.RetryResponse, &r)
 	case "concurrent-duplicates":
 		err = runConcurrent(ctx, c.Request, c.Workers(), &r)
 	case "crash-after-ack":
@@ -148,9 +158,12 @@ func Run(parent context.Context, c config.Config) (r Report) {
 			mismatches = append(mismatches, fmt.Sprintf("%s expected %d, observed %d", r.Checks[i].Name, r.Checks[i].Expected, final))
 		}
 	}
+	if r.RetryResponse != nil {
+		mismatches = append(mismatches, r.RetryResponse.Issues...)
+	}
 	if len(mismatches) > 0 {
 		r.Status = "VIOLATION"
-		r.Error = "state invariant failed: " + strings.Join(mismatches, "; ")
+		r.Error = "check failed: " + strings.Join(mismatches, "; ")
 	} else {
 		r.Status = "PASS"
 	}
@@ -195,8 +208,9 @@ func runConcurrent(ctx context.Context, request config.Request, workers int, r *
 	return nil
 }
 
-func runLostResponse(ctx context.Context, request config.Request, r *Report) error {
-	proxy, err := newDropProxy(ctx, request)
+func runLostResponse(ctx context.Context, request config.Request, responseRule *config.RetryResponse, r *Report) error {
+	captureResponse := responseRule != nil && len(responseRule.SameJSONPointers) > 0
+	proxy, err := newDropProxy(ctx, request, captureResponse)
 	if err != nil {
 		return fmt.Errorf("create fault proxy: %w", err)
 	}
@@ -204,6 +218,7 @@ func runLostResponse(ctx context.Context, request config.Request, r *Report) err
 	r.event("fault", "proxy will forward the operation, read the upstream response, then close the client connection without delivering it")
 	status, clientErr := send(ctx, request, proxy.URL())
 	r.Attempts = append(r.Attempts, Attempt{Kind: "original", HTTPStatus: status, ClientError: errorString(clientErr)})
+	var original proxyResult
 	select {
 	case result := <-proxy.result:
 		if result.err != nil {
@@ -217,15 +232,26 @@ func runLostResponse(ctx context.Context, request config.Request, r *Report) err
 		}
 		r.FaultInjected = true
 		r.event("fault", fmt.Sprintf("upstream returned HTTP %d; client saw a lost response", result.status))
+		original = result
 	case <-ctx.Done():
 		return fmt.Errorf("wait for fault proxy: %w", ctx.Err())
 	}
-	retryStatus, retryErr := send(ctx, request, request.URL)
+	retryStatus, retryBody, retryErr := sendWithBody(ctx, request, request.URL, captureResponse)
 	r.Attempts = append(r.Attempts, Attempt{Kind: "retry", HTTPStatus: retryStatus, ClientError: errorString(retryErr)})
 	if retryErr != nil {
 		return fmt.Errorf("retry request: %w", retryErr)
 	}
 	r.event("retry", fmt.Sprintf("resent the same method, URL, body, and configured headers; HTTP %d", retryStatus))
+	check, err := checkRetryResponse(responseRule, original.status, original.body, retryStatus, retryBody)
+	if err != nil {
+		return fmt.Errorf("compare retry response: %w", err)
+	}
+	r.RetryResponse = &check
+	if check.Passed {
+		r.event("retry check", "retry response met the declared checks")
+	} else {
+		r.event("retry check", strings.Join(check.Issues, "; "))
+	}
 	return nil
 }
 
@@ -259,13 +285,18 @@ func errorString(err error) string {
 }
 
 func send(ctx context.Context, req config.Request, target string) (int, error) {
+	status, _, err := sendWithBody(ctx, req, target, false)
+	return status, err
+}
+
+func sendWithBody(ctx context.Context, req config.Request, target string, capture bool) (int, []byte, error) {
 	var body io.Reader
 	if len(req.Body) > 0 {
 		body = bytes.NewReader(req.Body)
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, strings.ToUpper(req.Method), target, body)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	for k, v := range req.Headers {
 		httpReq.Header.Set(k, v)
@@ -273,13 +304,23 @@ func send(ctx context.Context, req config.Request, target string) (int, error) {
 	client := localClient()
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
-	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-		return resp.StatusCode, fmt.Errorf("read response body: %w", err)
+	if capture {
+		data, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+		if err != nil {
+			return resp.StatusCode, nil, fmt.Errorf("read response body: %w", err)
+		}
+		if len(data) > 1<<20 {
+			return resp.StatusCode, nil, errors.New("response body exceeds 1 MiB")
+		}
+		return resp.StatusCode, data, nil
 	}
-	return resp.StatusCode, nil
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return resp.StatusCode, nil, fmt.Errorf("read response body: %w", err)
+	}
+	return resp.StatusCode, nil, nil
 }
 
 // Each operation gets a direct, fresh connection. This keeps proxy settings

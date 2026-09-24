@@ -40,7 +40,7 @@ Here are three checks outside the built-in demo:
 
 Those results show what happened in these setups, not a bug in NetCore or PocketBase: neither tested endpoint promises idempotency. The Spring sample keeps its ledger in memory, so its passing result says nothing about crash recovery. See the [NetCore check](docs/independent-check.md) and [third-party checks](docs/external-checks.md) for the setups and limits.
 
-I then tried the lost-response test against [20 small FastAPI repos](docs/compatibility-checks.md) and [27 Flask, Express, and Spring repos](docs/compatibility-checks-2.md). Including the three above, that's **50 distinct repos checked**. The extra 47 are mostly educational CRUD apps, not a representative sample of production systems. In those runs, 36 created two records and 11 created one; ten of the 11 one-record runs returned an error on retry. The linked notes include pinned commits, request bodies, HTTP statuses, and direct state checks.
+I then tried the lost-response test against [20 small FastAPI repos](docs/compatibility-checks.md) and [27 Flask, Express, and Spring repos](docs/compatibility-checks-2.md). Including the three above, that's **50 distinct repos checked**. The extra 47 are mostly educational CRUD apps, not a representative sample of production systems. In those runs, 36 created two records and 11 created one; ten of the 11 one-record runs returned an error on retry. Those were state-only verdicts from the earlier version; the current version also checks the retry response and would flag those ten as violations. The linked notes preserve the original run data, pinned commits, request bodies, HTTP statuses, and direct state checks.
 
 ## Install
 
@@ -59,11 +59,11 @@ If you'd rather build it yourself, run `go build -o recoverylab ./cmd/recoveryla
 
 | Scenario | What RecoveryLab does | What you learn |
 | --- | --- | --- |
-| `lost-response` | Lets the service process a request, drops the reply, then sends the same request again. | Whether a retry repeats the side effect. |
+| `lost-response` | Lets the service process a request, drops the reply, then sends the same request again. | Whether a retry repeats the side effect and whether the client gets a successful reply. |
 | `concurrent-duplicates` | Sends 2–64 copies of the same request together. | Whether this burst caused a duplicate side effect. |
 | `crash-after-ack` | Starts your service, sends a request, kills its process after a 2xx response, then restarts it. | Whether the exposed state survived that process crash. |
 
-RecoveryLab reads your state endpoint before and after the experiment. For each check, it compares the final integer with `baseline + expected_delta`. It can only judge the state you expose; a passing run is not proof that every possible side effect is safe.
+RecoveryLab reads your state endpoint before and after the experiment. For each check, it compares the final integer with `baseline + expected_delta`. The lost-response test also requires a successful (2xx) retry response by default. It can only judge the state and reply you expose; a passing run is not proof that every possible side effect is safe.
 
 ## Try it against your service
 
@@ -86,11 +86,14 @@ Use a disposable local service with a write endpoint and a `GET` endpoint that e
     "url": "http://127.0.0.1:8080/state",
     "pointer": "/order_count",
     "expected_delta": 1
+  },
+  "retry_response": {
+    "same_json_pointers": ["/order_id"]
   }
 }
 ```
 
-Save that as `scenario.json`, change the URLs and JSON pointer to match your service, then run:
+Save that as `scenario.json`, change the URLs and JSON pointers to match your service, then run:
 
 ```sh
 go run ./cmd/recoverylab validate scenario.json
@@ -98,6 +101,8 @@ go run ./cmd/recoverylab run scenario.json
 ```
 
 `{{run_id}}` is replaced once per run, so the original request and retry share a key, while the next run gets a fresh one. Put it in the idempotency key, URL, or JSON body wherever your service identifies an operation. Make sure the state endpoint measures the thing you care about: an order count can reveal duplicate orders, while an HTTP 200 alone cannot.
+
+The `retry_response` block compares a stable value in the original and retry replies. In this example, both replies must contain the same `/order_id`. Remove that block if your API doesn't return JSON with an order ID; the default 2xx retry check still runs. A different 2xx reply is allowed, such as `201 Created` followed by `200 OK`, as long as the selected values match. If your API contract deliberately returns a non-2xx code for duplicates, set `"allowed_statuses": [409]` inside `retry_response` to check for that code instead. Response bodies used for comparison are limited to 1 MiB and are not written to reports.
 
 If the state endpoint needs authentication, add `"headers": { "Authorization": "Bearer ..." }` inside `observe`. Keep credentials out of files you commit.
 
@@ -150,8 +155,8 @@ RecoveryLab waits for `ready_url`, reads the baseline, sends the operation, kill
 
 | Exit code | Result | Meaning |
 | --- | --- | --- |
-| `0` | `PASS` | All declared state checks matched in this run. |
-| `1` | `VIOLATION` | The fault ran, and at least one state check failed. |
+| `0` | `PASS` | State checks matched and, for lost-response, the retry reply met its checks. |
+| `1` | `VIOLATION` | The fault ran, and a state or retry-response check failed. |
 | `2` | `ERROR` | Setup, a request, or an observation failed; there is no correctness verdict. |
 
 These are the built `recoverylab` binary's exit codes. `go run` can wrap a nonzero exit; use the built binary when checking exit codes in CI.
@@ -160,7 +165,7 @@ For a machine-readable report, run `go run ./cmd/recoverylab run --format json -
 
 RecoveryLab accepts loopback HTTP(S) URLs only and does not follow redirects. Its current scope is one operation and up to 16 named integer checks per run. Those checks can still miss effects that your state endpoints do not show.
 
-The retry and concurrent response codes are recorded but do not decide `PASS` or `VIOLATION`; the declared state check does. The request body and observation response are limited to 1 MiB each.
+Concurrent response codes are recorded but do not decide `PASS` or `VIOLATION`; the declared state checks do. In lost-response runs, the retry status also decides the verdict. Matching a selected JSON value is optional and checks only those selected fields, not the whole response or its timing. The request body and observation response are limited to 1 MiB each.
 
 A single run may miss an intermittent race. With the fixture or your service running, use `go run ./cmd/recoverylab run --repeat 20 examples/concurrent-duplicates.json` to try 20 independent bursts; each gets a fresh `{{run_id}}`. A batch reports every result and exits with a violation if any run found one. With `--format json` or `--output`, repeated runs produce one JSON object containing a `reports` array. Asynchronous or eventually consistent writes need a different check because RecoveryLab reads state immediately after the requests finish.
 

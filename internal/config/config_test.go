@@ -92,3 +92,37 @@ func TestLoadMultipleChecksJSON(t *testing.T) {
 		t.Fatalf("load multiple checks: %+v, %v", c, err)
 	}
 }
+
+func TestRetryResponseValidation(t *testing.T) {
+	delta := int64(1)
+	c := Config{
+		Name: "response", Scenario: "lost-response",
+		Request:       Request{Method: "POST", URL: "http://127.0.0.1:8080/write"},
+		Observe:       Observation{URL: "http://127.0.0.1:8080/state", Pointer: "/count", ExpectedDelta: &delta},
+		RetryResponse: &RetryResponse{AllowedStatuses: []int{200, 201}, SameJSONPointers: []string{"/order/id"}},
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name string
+		edit func(*Config)
+		want string
+	}{
+		{"other scenario", func(c *Config) { c.Scenario = "concurrent-duplicates" }, "only applies"},
+		{"bad status", func(c *Config) { c.RetryResponse.AllowedStatuses = []int{700} }, "HTTP codes"},
+		{"duplicate status", func(c *Config) { c.RetryResponse.AllowedStatuses = []int{200, 200} }, "distinct"},
+		{"bad pointer", func(c *Config) { c.RetryResponse.SameJSONPointers = []string{"bad"} }, "JSON pointer"},
+		{"duplicate pointer", func(c *Config) { c.RetryResponse.SameJSONPointers = []string{"/id", "/id"} }, "duplicate"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			copy := c
+			rule := *c.RetryResponse
+			copy.RetryResponse = &rule
+			test.edit(&copy)
+			if err := copy.Validate(); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("got %v, want %q", err, test.want)
+			}
+		})
+	}
+}

@@ -17,6 +17,7 @@ import (
 
 type proxyResult struct {
 	status int
+	body   []byte
 	err    error
 }
 
@@ -28,7 +29,7 @@ type dropProxy struct {
 	used     atomic.Bool
 }
 
-func newDropProxy(ctx context.Context, target config.Request) (*dropProxy, error) {
+func newDropProxy(ctx context.Context, target config.Request, captureResponse bool) (*dropProxy, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
@@ -50,7 +51,7 @@ func newDropProxy(ctx context.Context, target config.Request) (*dropProxy, error
 			http.Error(w, "body mismatch", http.StatusBadRequest)
 			return
 		}
-		status, forwardErr := send(ctx, target, target.URL)
+		status, responseBody, forwardErr := sendWithBody(ctx, target, target.URL, captureResponse)
 		if forwardErr != nil {
 			p.once.Do(func() { p.result <- proxyResult{status: status, err: forwardErr} })
 			http.Error(w, "upstream failed", http.StatusBadGateway)
@@ -67,7 +68,7 @@ func newDropProxy(ctx context.Context, target config.Request) (*dropProxy, error
 			p.once.Do(func() { p.result <- proxyResult{err: err} })
 			return
 		}
-		p.once.Do(func() { p.result <- proxyResult{status: status} })
+		p.once.Do(func() { p.result <- proxyResult{status: status, body: responseBody} })
 		_ = conn.Close()
 	})}
 	go func() { _ = p.server.Serve(listener) }()
