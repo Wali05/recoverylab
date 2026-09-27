@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Wali05/recoverylab/internal/config"
+	"github.com/Wali05/recoverylab/internal/strictjson"
 )
 
 type Event struct {
@@ -433,7 +434,7 @@ func observe(ctx context.Context, o config.Observation) (int64, error) {
 	if len(data) > 1<<20 {
 		return 0, errors.New("observation exceeds 1 MiB")
 	}
-	if err := rejectDuplicateKeys(data); err != nil {
+	if err := strictjson.RejectDuplicateKeys(data); err != nil {
 		return 0, fmt.Errorf("invalid observation JSON: %w", err)
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
@@ -461,56 +462,6 @@ func observe(ctx context.Context, o config.Observation) (int64, error) {
 		return 0, fmt.Errorf("value at %q is not an int64: %w", o.Pointer, err)
 	}
 	return n, nil
-}
-
-func rejectDuplicateKeys(data []byte) error {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
-	var scan func() error
-	scan = func() error {
-		token, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		delim, ok := token.(json.Delim)
-		if !ok {
-			return nil
-		}
-		switch delim {
-		case '{':
-			seen := map[string]bool{}
-			for dec.More() {
-				keyToken, err := dec.Token()
-				if err != nil {
-					return err
-				}
-				key, ok := keyToken.(string)
-				if !ok {
-					return errors.New("object member name is not a string")
-				}
-				if seen[key] {
-					return fmt.Errorf("duplicate object member %q", key)
-				}
-				seen[key] = true
-				if err := scan(); err != nil {
-					return err
-				}
-			}
-			_, err := dec.Token()
-			return err
-		case '[':
-			for dec.More() {
-				if err := scan(); err != nil {
-					return err
-				}
-			}
-			_, err := dec.Token()
-			return err
-		default:
-			return errors.New("unexpected closing delimiter")
-		}
-	}
-	return scan()
 }
 
 func atPointer(root any, pointer string) (any, error) {

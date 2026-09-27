@@ -1,0 +1,98 @@
+{
+  "name": "idempot-js-sqlite-crash-control",
+  "scenario": "crash-after-ack",
+  "run_id": "8e25bbebb0d43730",
+  "status": "VIOLATION",
+  "started_at": "2026-09-27T08:46:52.5470361Z",
+  "duration_ms": 504,
+  "baseline": 0,
+  "expected": 1,
+  "observed": 2,
+  "checks": [
+    {
+      "name": "state",
+      "baseline": 0,
+      "expected": 1,
+      "observed": 2
+    }
+  ],
+  "after_restart_checks": [
+    {
+      "name": "state",
+      "baseline": 0,
+      "expected": 1,
+      "observed": 1
+    }
+  ],
+  "retry_response": {
+    "original_http_status": 201,
+    "retry_http_status": 201,
+    "expected_status": "2xx",
+    "same_json_pointers": [
+      "/id"
+    ],
+    "passed": false,
+    "issues": [
+      "retry JSON value at \"/id\" differs from original or is missing"
+    ]
+  },
+  "fault_injected": true,
+  "attempts": [
+    {
+      "kind": "original",
+      "http_status": 201
+    },
+    {
+      "kind": "retry",
+      "http_status": 201
+    }
+  ],
+  "events": [
+    {
+      "at": "2026-09-27T08:46:52.7853843Z",
+      "step": "service",
+      "detail": "started and ready"
+    },
+    {
+      "at": "2026-09-27T08:46:52.7884185Z",
+      "step": "baseline",
+      "detail": "state: observed 0; expected final value 1"
+    },
+    {
+      "at": "2026-09-27T08:46:52.7942507Z",
+      "step": "ack",
+      "detail": "service acknowledged operation with HTTP 201"
+    },
+    {
+      "at": "2026-09-27T08:46:52.8016927Z",
+      "step": "fault",
+      "detail": "killed the managed service immediately after acknowledgement"
+    },
+    {
+      "at": "2026-09-27T08:46:53.034604Z",
+      "step": "recovery",
+      "detail": "service restarted and became ready"
+    },
+    {
+      "at": "2026-09-27T08:46:53.0376278Z",
+      "step": "after restart",
+      "detail": "state: expected 1, observed 1 before retry"
+    },
+    {
+      "at": "2026-09-27T08:46:53.0428196Z",
+      "step": "retry",
+      "detail": "resent the same operation after restart; HTTP 201"
+    },
+    {
+      "at": "2026-09-27T08:46:53.0428196Z",
+      "step": "retry check",
+      "detail": "retry JSON value at \"/id\" differs from original or is missing"
+    },
+    {
+      "at": "2026-09-27T08:46:53.0451865Z",
+      "step": "verify",
+      "detail": "state: expected 1, observed 2"
+    }
+  ],
+  "error": "check failed: retry JSON value at \"/id\" differs from original or is missing; state expected 1, observed 2"
+}

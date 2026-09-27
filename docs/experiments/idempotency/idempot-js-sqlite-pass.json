@@ -1,0 +1,94 @@
+{
+  "name": "idempot-js-sqlite-crash-retry",
+  "scenario": "crash-after-ack",
+  "run_id": "19f71f6dec36ee15",
+  "status": "PASS",
+  "started_at": "2026-09-27T08:46:30.5084263Z",
+  "duration_ms": 512,
+  "baseline": 0,
+  "expected": 1,
+  "observed": 1,
+  "checks": [
+    {
+      "name": "state",
+      "baseline": 0,
+      "expected": 1,
+      "observed": 1
+    }
+  ],
+  "after_restart_checks": [
+    {
+      "name": "state",
+      "baseline": 0,
+      "expected": 1,
+      "observed": 1
+    }
+  ],
+  "retry_response": {
+    "original_http_status": 201,
+    "retry_http_status": 201,
+    "expected_status": "2xx",
+    "same_json_pointers": [
+      "/id"
+    ],
+    "passed": true
+  },
+  "fault_injected": true,
+  "attempts": [
+    {
+      "kind": "original",
+      "http_status": 201
+    },
+    {
+      "kind": "retry",
+      "http_status": 201
+    }
+  ],
+  "events": [
+    {
+      "at": "2026-09-27T08:46:30.7483336Z",
+      "step": "service",
+      "detail": "started and ready"
+    },
+    {
+      "at": "2026-09-27T08:46:30.7516985Z",
+      "step": "baseline",
+      "detail": "state: observed 0; expected final value 1"
+    },
+    {
+      "at": "2026-09-27T08:46:30.7656526Z",
+      "step": "ack",
+      "detail": "service acknowledged operation with HTTP 201"
+    },
+    {
+      "at": "2026-09-27T08:46:30.7730162Z",
+      "step": "fault",
+      "detail": "killed the managed service immediately after acknowledgement"
+    },
+    {
+      "at": "2026-09-27T08:46:31.0055904Z",
+      "step": "recovery",
+      "detail": "service restarted and became ready"
+    },
+    {
+      "at": "2026-09-27T08:46:31.0085364Z",
+      "step": "after restart",
+      "detail": "state: expected 1, observed 1 before retry"
+    },
+    {
+      "at": "2026-09-27T08:46:31.0120854Z",
+      "step": "retry",
+      "detail": "resent the same operation after restart; HTTP 201"
+    },
+    {
+      "at": "2026-09-27T08:46:31.0120854Z",
+      "step": "retry check",
+      "detail": "post-restart reply met the declared checks"
+    },
+    {
+      "at": "2026-09-27T08:46:31.0140742Z",
+      "step": "verify",
+      "detail": "state: expected 1, observed 1"
+    }
+  ]
+}

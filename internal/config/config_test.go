@@ -29,6 +29,10 @@ func TestLoadStrictAndLocal(t *testing.T) {
 	for _, test := range []struct{ label, data, want string }{
 		{"remote URL", strings.Replace(good, "127.0.0.1:8080/write", "example.com/write", 1), "only loopback"},
 		{"unknown field", strings.Replace(good, `"name":"sample"`, `"name":"sample","surprise":true`, 1), "unknown field"},
+		{"duplicate scenario", strings.Replace(good, `"scenario":"lost-response"`, `"scenario":"lost-response","scenario":"concurrent-duplicates"`, 1), "duplicate object member"},
+		{"escaped duplicate name", strings.Replace(good, `"name":"sample"`, `"name":"sample","\u006eame":"other"`, 1), "duplicate object member"},
+		{"duplicate nested setting", strings.Replace(good, `"method":"POST"`, `"method":"POST","method":"DELETE"`, 1), "duplicate object member"},
+		{"duplicate request body key", strings.Replace(good, `"headers":{`, `"body":{"item":"book","item":"phone"},"headers":{`, 1), "duplicate object member"},
 		{"missing delta", strings.Replace(good, `,"expected_delta":1`, ``, 1), "expected_delta"},
 		{"trailing document", good + `{}`, "exactly one"},
 	} {

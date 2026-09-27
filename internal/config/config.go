@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Wali05/recoverylab/internal/strictjson"
 )
 
 // Config describes one reproducible failure experiment.
@@ -70,6 +72,9 @@ func Load(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Config{}, err
+	}
+	if err := strictjson.RejectDuplicateKeys(data); err != nil {
+		return Config{}, fmt.Errorf("parse %s: %w", path, err)
 	}
 	var c Config
 	dec := json.NewDecoder(bytes.NewReader(data))

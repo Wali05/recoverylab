@@ -42,7 +42,9 @@ Those results show what happened in these setups, not a bug in NetCore or Pocket
 
 A more focused check uses projects that actually promise safe retries. I tested [three idempotency projects](docs/idempotency-contract-checks.md): an Express middleware, a FastAPI decorator, and the Spring payment sample. Each handled ten lost-response runs with one effect and the same operation ID on retry. I then ran 100 bursts of 16 requests with the same key against each project. All 300 bursts had one effect; in-progress requests got 409 where expected. Turning off the guard in the Express and FastAPI hosts made every control burst create 16 effects. These are local contract checks, not discovered bugs in those projects.
 
-For breadth, I also tried the older state-only test against [20 small FastAPI repos](docs/compatibility-checks.md) and [27 Flask, Express, and Spring repos](docs/compatibility-checks-2.md). Including the three earlier checks, that's **50 distinct repos checked**. The extra 47 are mostly educational CRUD apps, not a representative sample of production systems. In those runs, 36 created two records and 11 created one; ten of the 11 one-record runs returned an error on retry. Those are historical v0.1.2 verdicts; the current version would flag those ten rejected retries as violations. The linked notes preserve the original run data.
+For a restart check with a persistent store, I ran [idempot-js with SQLite](docs/persistent-idempotency-check.md). Its middleware kept one order and replayed the same ID in 20 process-crash runs. With the guard switched off in the test host, all five control runs created a second order. That checks this specific setup; it does not establish safety across database failures or crashes inside the write handler.
+
+For breadth, I also tried the older state-only test against [20 small FastAPI repos](docs/compatibility-checks.md) and [27 Flask, Express, and Spring repos](docs/compatibility-checks-2.md). That historical sweep, including the three earlier checks, covered **50 distinct repos**; the SQLite check above is additional. The extra 47 are mostly educational CRUD apps, not a representative sample of production systems. In those runs, 36 created two records and 11 created one; ten of the 11 one-record runs returned an error on retry. Those are historical v0.1.2 verdicts; the current version would flag those ten rejected retries as violations. The linked notes preserve the original run data.
 
 ## Install
 
@@ -101,6 +103,8 @@ Save that as `scenario.json`, change the URLs and JSON pointers to match your se
 go run ./cmd/recoverylab validate scenario.json
 go run ./cmd/recoverylab run scenario.json
 ```
+
+`validate` also rejects unknown settings and duplicate JSON keys, including keys nested in the request body, so an overwritten value cannot quietly change the experiment.
 
 `{{run_id}}` is replaced once per run, so the original request and retry share a key, while the next run gets a fresh one. Put it in the idempotency key, URL, or JSON body wherever your service identifies an operation. Make sure the state endpoint measures the thing you care about: an order count can reveal duplicate orders, while an HTTP 200 alone cannot.
 
@@ -161,7 +165,7 @@ To also retry the same request after restart, add `"retry_response": { "same_jso
 recoverylab run examples/crash-retry.json
 ```
 
-The [PocketBase check](docs/crash-retry-check.md) shows a third-party service that duplicates the write on retry.
+The [PocketBase check](docs/crash-retry-check.md) shows a third-party service that duplicates the write on retry. The [SQLite-backed idempotency check](docs/persistent-idempotency-check.md) shows a service that keeps one write and the same reply across a process restart.
 
 This tests a **process crash after acknowledgement**; it does not crash a separate database, simulate a power loss, or choose a crash point inside your handler. See [design notes](docs/design.md) for the precise timeline.
 

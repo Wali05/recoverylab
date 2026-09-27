@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Wali05/recoverylab/internal/config"
+	"github.com/Wali05/recoverylab/internal/strictjson"
 )
 
 func checkRetryResponse(rule *config.RetryResponse, originalStatus int, originalBody []byte, retryStatus int, retryBody []byte) (ResponseCheck, error) {
@@ -63,7 +64,7 @@ func checkRetryResponse(rule *config.RetryResponse, originalStatus int, original
 }
 
 func responseJSON(data []byte) (any, error) {
-	if err := rejectDuplicateKeys(data); err != nil {
+	if err := strictjson.RejectDuplicateKeys(data); err != nil {
 		return nil, err
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))

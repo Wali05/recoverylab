@@ -56,6 +56,6 @@ RecoveryLab records HTTP codes from retries and concurrent requests. A lost-resp
 - The entire experiment has a context deadline. A hung request or readiness probe ends as `ERROR`.
 - Managed processes are stopped on completion and on setup failures. The CLI keeps the last 32 KiB of process output for startup diagnostics.
 - Operation URLs are loopback-only, and redirects are not followed. This keeps experiments on a local test environment.
-- The observer rejects responses larger than 1 MiB, incomplete JSON, and extra JSON values. Response comparison also caps each reply at 1 MiB and rejects ambiguous JSON. A response body must finish before an HTTP acknowledgement counts as complete.
+- Scenario files reject unknown settings and duplicate JSON object keys. The observer rejects responses larger than 1 MiB, incomplete JSON, and extra JSON values. Response comparison also caps each reply at 1 MiB and rejects ambiguous JSON. A response body must finish before an HTTP acknowledgement counts as complete.
 - A managed-service scenario executes its `service.command` locally; only run scenario files you trust.
 - Terminal and JSON reports use the same structured result. Exit codes are stable: 0 pass, 1 violation, 2 error.
