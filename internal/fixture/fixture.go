@@ -2,9 +2,12 @@ package fixture
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,18 +16,19 @@ import (
 )
 
 type entry struct {
-	Key string `json:"key"`
+	Key         string `json:"key"`
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 type store struct {
 	mu      sync.Mutex
 	journal string
-	keys    map[string]bool
+	keys    map[string]string
 	count   int64
 }
 
 func openStore(path string) (*store, error) {
-	s := &store{journal: path, keys: map[string]bool{}}
+	s := &store{journal: path, keys: map[string]string{}}
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -40,25 +44,30 @@ func openStore(path string) (*store, error) {
 			return nil, fmt.Errorf("read journal: %w", err)
 		}
 		s.count++
-		s.keys[e.Key] = true
+		s.keys[e.Key] = e.Fingerprint
 	}
 	return s, scanner.Err()
 }
 
 func (s *store) add(key string, deduplicate bool) (bool, error) {
+	added, _, err := s.addWithFingerprint(key, "", deduplicate)
+	return added, err
+}
+
+func (s *store) addWithFingerprint(key, fingerprint string, deduplicate bool) (bool, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if deduplicate && s.keys[key] {
-		return false, nil
+	if previous, exists := s.keys[key]; deduplicate && exists {
+		return false, previous, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(s.journal), 0755); err != nil {
-		return false, err
+		return false, "", err
 	}
 	f, err := os.OpenFile(s.journal, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
-	line, _ := json.Marshal(entry{Key: key})
+	line, _ := json.Marshal(entry{Key: key, Fingerprint: fingerprint})
 	line = append(line, '\n')
 	count, err := f.Write(line)
 	if err == nil && count != len(line) {
@@ -69,14 +78,14 @@ func (s *store) add(key string, deduplicate bool) (bool, error) {
 	}
 	closeErr := f.Close()
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	if closeErr != nil {
-		return false, closeErr
+		return false, "", closeErr
 	}
 	s.count++
-	s.keys[key] = true
-	return true, nil
+	s.keys[key] = fingerprint
+	return true, "", nil
 }
 
 func (s *store) value() int64 {
@@ -88,7 +97,8 @@ func (s *store) value() int64 {
 func (s *store) has(key string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.keys[key]
+	_, exists := s.keys[key]
+	return exists
 }
 
 // New returns a tiny persistent HTTP service used for executable demonstrations.
@@ -135,6 +145,34 @@ func New(mode, journal string) (http.Handler, error) {
 			w.WriteHeader(status)
 			_ = json.NewEncoder(w).Encode(map[string]string{"operation_id": id})
 		}
+		if mode == "correct" {
+			body, err := io.ReadAll(io.LimitReader(r.Body, (1<<20)+1))
+			if err != nil {
+				http.Error(w, "request body failed", http.StatusBadRequest)
+				return
+			}
+			if len(body) > 1<<20 {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			digest := sha256.Sum256(body)
+			fingerprint := hex.EncodeToString(digest[:])
+			added, previous, err := s.addWithFingerprint(key, fingerprint, true)
+			if err != nil {
+				http.Error(w, "journal write failed", http.StatusInternalServerError)
+				return
+			}
+			if !added {
+				if previous != "" && previous != fingerprint {
+					http.Error(w, "Idempotency-Key used with a different body", http.StatusUnprocessableEntity)
+					return
+				}
+				writeOperation(http.StatusOK, key)
+				return
+			}
+			writeOperation(http.StatusCreated, key)
+			return
+		}
 		if mode == "repair-after-crash-bug" {
 			marker := journal + ".ack"
 			if _, err := os.Stat(marker); errors.Is(err, os.ErrNotExist) {
@@ -178,13 +216,13 @@ func New(mode, journal string) (http.Handler, error) {
 			_, _ = w.Write([]byte("applied"))
 			return
 		}
-		added, err := s.add(key, mode == "correct" || mode == "replay-bug" || mode == "repair-after-crash-bug")
+		added, err := s.add(key, mode == "replay-bug" || mode == "repair-after-crash-bug")
 		if err != nil {
 			http.Error(w, "journal write failed", http.StatusInternalServerError)
 			return
 		}
 		if !added {
-			if mode == "correct" || mode == "replay-bug" || mode == "repair-after-crash-bug" {
+			if mode == "replay-bug" || mode == "repair-after-crash-bug" {
 				id := key
 				if mode == "replay-bug" {
 					id += "-changed"
@@ -196,7 +234,7 @@ func New(mode, journal string) (http.Handler, error) {
 			_, _ = w.Write([]byte("already applied"))
 			return
 		}
-		if mode == "correct" || mode == "replay-bug" || mode == "repair-after-crash-bug" {
+		if mode == "replay-bug" || mode == "repair-after-crash-bug" {
 			writeOperation(http.StatusCreated, key)
 			return
 		}

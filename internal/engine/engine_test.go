@@ -48,6 +48,78 @@ func TestLostResponseDetectsDuplicateEffect(t *testing.T) {
 	}
 }
 
+func TestKeyReuseChecksRejectionAndState(t *testing.T) {
+	for _, item := range []struct {
+		mode, want string
+		status     int
+		final      int64
+	}{
+		{"correct", "PASS", http.StatusUnprocessableEntity, 1},
+		{"duplicate-bug", "VIOLATION", http.StatusCreated, 2},
+	} {
+		t.Run(item.mode, func(t *testing.T) {
+			handler, err := fixture.New(item.mode, filepath.Join(t.TempDir(), "journal.jsonl"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(handler)
+			defer server.Close()
+			c := scenario(server.URL, "key-reuse", nil)
+			c.ChangedBody = json.RawMessage(`{"amount":2}`)
+			r := Run(context.Background(), c)
+			if r.Status != item.want || r.KeyReuseResponse == nil || r.KeyReuseResponse.ActualHTTPStatus != item.status || r.Observed == nil || *r.Observed != item.final || len(r.Attempts) != 2 {
+				t.Fatalf("unexpected report: %+v", r)
+			}
+		})
+	}
+}
+
+func TestKeyReuseFindsSilentReplayEvenWithOneEffect(t *testing.T) {
+	count := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/state" {
+			_ = json.NewEncoder(w).Encode(map[string]int{"count": count})
+			return
+		}
+		if count == 0 {
+			count++
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusOK) // The changed payload is silently replayed.
+	}))
+	defer server.Close()
+	c := scenario(server.URL, "key-reuse", nil)
+	c.ChangedBody = json.RawMessage(`{"amount":2}`)
+	r := Run(context.Background(), c)
+	if r.Status != "VIOLATION" || r.Observed == nil || *r.Observed != 1 || r.KeyReuseResponse == nil || r.KeyReuseResponse.Passed || !strings.Contains(r.Error, "expected HTTP 422") {
+		t.Fatalf("silent replay should violate the response contract: %+v", r)
+	}
+}
+
+func TestKeyReuseFindsWriteDespiteRejection(t *testing.T) {
+	count := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/state" {
+			_ = json.NewEncoder(w).Encode(map[string]int{"count": count})
+			return
+		}
+		count++
+		if count == 1 {
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusUnprocessableEntity) // Rejection came too late.
+	}))
+	defer server.Close()
+	c := scenario(server.URL, "key-reuse", nil)
+	c.ChangedBody = json.RawMessage(`{"amount":2}`)
+	r := Run(context.Background(), c)
+	if r.Status != "VIOLATION" || r.KeyReuseResponse == nil || !r.KeyReuseResponse.Passed || r.Observed == nil || *r.Observed != 2 || !strings.Contains(r.Error, "state expected 1, observed 2") {
+		t.Fatalf("a 422 after the second write should violate the state check: %+v", r)
+	}
+}
+
 func TestConcurrentDuplicatesFindsCheckThenWriteRace(t *testing.T) {
 	for _, item := range []struct {
 		mode, want string

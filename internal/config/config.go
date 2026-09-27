@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -20,17 +21,19 @@ import (
 
 // Config describes one reproducible failure experiment.
 type Config struct {
-	Name               string              `json:"name"`
-	Scenario           string              `json:"scenario"`
-	Timeout            string              `json:"timeout,omitempty"`
-	Concurrency        int                 `json:"concurrency,omitempty"`
-	Service            *Service            `json:"service,omitempty"`
-	Request            Request             `json:"request"`
-	Observe            Observation         `json:"observe,omitempty"`
-	Checks             []Observation       `json:"checks,omitempty"`
-	RetryResponse      *RetryResponse      `json:"retry_response,omitempty"`
-	ConcurrentResponse *ConcurrentResponse `json:"concurrent_response,omitempty"`
-	SourceDir          string              `json:"-"`
+	Name                string              `json:"name"`
+	Scenario            string              `json:"scenario"`
+	Timeout             string              `json:"timeout,omitempty"`
+	Concurrency         int                 `json:"concurrency,omitempty"`
+	Service             *Service            `json:"service,omitempty"`
+	Request             Request             `json:"request"`
+	ChangedBody         json.RawMessage     `json:"changed_body,omitempty"`
+	ExpectedReuseStatus int                 `json:"expected_reuse_status,omitempty"`
+	Observe             Observation         `json:"observe,omitempty"`
+	Checks              []Observation       `json:"checks,omitempty"`
+	RetryResponse       *RetryResponse      `json:"retry_response,omitempty"`
+	ConcurrentResponse  *ConcurrentResponse `json:"concurrent_response,omitempty"`
+	SourceDir           string              `json:"-"`
 }
 
 // RetryResponse adds checks for a retry after a lost response or process restart.
@@ -114,6 +117,7 @@ func (c *Config) Resolve(runID string) {
 	}
 	c.Request.Headers = requestHeaders
 	c.Request.Body = json.RawMessage(replace(string(c.Request.Body)))
+	c.ChangedBody = json.RawMessage(replace(string(c.ChangedBody)))
 	c.Observe.Name = replace(c.Observe.Name)
 	c.Observe.URL = replace(c.Observe.URL)
 	observeHeaders := make(map[string]string, len(c.Observe.Headers))
@@ -157,6 +161,13 @@ func (c Config) Workers() int {
 	return c.Concurrency
 }
 
+func (c Config) ReuseStatus() int {
+	if c.ExpectedReuseStatus == 0 {
+		return 422
+	}
+	return c.ExpectedReuseStatus
+}
+
 func (s Service) StartupDuration() time.Duration {
 	if s.StartupTimeout == "" {
 		return 10 * time.Second
@@ -169,8 +180,8 @@ func (c Config) Validate() error {
 	if c.Name == "" {
 		return errors.New("name is required")
 	}
-	if c.Scenario != "lost-response" && c.Scenario != "crash-after-ack" && c.Scenario != "concurrent-duplicates" {
-		return errors.New("scenario must be lost-response, concurrent-duplicates, or crash-after-ack")
+	if c.Scenario != "lost-response" && c.Scenario != "crash-after-ack" && c.Scenario != "concurrent-duplicates" && c.Scenario != "key-reuse" {
+		return errors.New("scenario must be lost-response, concurrent-duplicates, crash-after-ack, or key-reuse")
 	}
 	if c.Scenario == "concurrent-duplicates" {
 		if c.Workers() < 2 || c.Workers() > 64 {
@@ -276,6 +287,42 @@ func (c Config) Validate() error {
 	}
 	if len(c.Request.Body) > 1<<20 {
 		return errors.New("request.body must be at most 1 MiB")
+	}
+	if c.Scenario == "key-reuse" {
+		if len(c.Request.Body) == 0 || len(c.ChangedBody) == 0 || !json.Valid(c.ChangedBody) {
+			return errors.New("key-reuse requires valid request.body and changed_body JSON")
+		}
+		if len(c.ChangedBody) > 1<<20 {
+			return errors.New("changed_body must be at most 1 MiB")
+		}
+		var original, changed any
+		originalDecoder := json.NewDecoder(bytes.NewReader(c.Request.Body))
+		originalDecoder.UseNumber()
+		changedDecoder := json.NewDecoder(bytes.NewReader(c.ChangedBody))
+		changedDecoder.UseNumber()
+		if err := originalDecoder.Decode(&original); err != nil {
+			return fmt.Errorf("request.body: %w", err)
+		}
+		if err := changedDecoder.Decode(&changed); err != nil {
+			return fmt.Errorf("changed_body: %w", err)
+		}
+		if reflect.DeepEqual(original, changed) {
+			return errors.New("changed_body must change a JSON value, not just formatting or key order")
+		}
+		if c.ReuseStatus() < 400 || c.ReuseStatus() > 499 {
+			return errors.New("expected_reuse_status must be a 4xx HTTP status")
+		}
+		keyFound := false
+		for header, value := range c.Request.Headers {
+			if strings.EqualFold(header, "Idempotency-Key") && strings.TrimSpace(value) != "" {
+				keyFound = true
+			}
+		}
+		if !keyFound {
+			return errors.New("key-reuse requires an Idempotency-Key request header")
+		}
+	} else if len(c.ChangedBody) > 0 || c.ExpectedReuseStatus != 0 {
+		return errors.New("changed_body and expected_reuse_status only apply to key-reuse")
 	}
 	for k, v := range c.Request.Headers {
 		if strings.ContainsAny(k, "\r\n") || strings.ContainsAny(v, "\r\n") {

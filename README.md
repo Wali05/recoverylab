@@ -6,6 +6,8 @@ Imagine your API creates an order and sends `200 OK`, but the response disappear
 
 It can also send duplicate requests at the same time or restart your service after a process crash. RecoveryLab checks what changed in the state your local HTTP service exposes, instead of trusting the HTTP status alone.
 
+It can also check what happens when a client accidentally reuses an idempotency key for a *different* request. That case needs both a rejection and no second write.
+
 ![Terminal preview of the six built-in RecoveryLab demo cases](docs/assets/demo.png)
 
 ## See it run
@@ -44,6 +46,8 @@ A more focused check uses projects that actually promise safe retries. I tested 
 
 For a restart check with a persistent store, I ran [idempot-js with SQLite](docs/persistent-idempotency-check.md). Its middleware kept one order and replayed the same ID in 20 process-crash runs. With the guard switched off in the test host, all five control runs created a second order. That checks this specific setup; it does not establish safety across database failures or crashes inside the write handler.
 
+I also [checked changed-payload key reuse](docs/key-reuse-check.md) against the same SQLite-backed middleware. It rejected a changed order with HTTP 422 and kept one new order in all 20 runs. With the middleware disabled, five control runs each created a second order. Those are local contract checks, not upstream bug reports.
+
 For breadth, I also tried the older state-only test against [20 small FastAPI repos](docs/compatibility-checks.md) and [27 Flask, Express, and Spring repos](docs/compatibility-checks-2.md). That historical sweep, including the three earlier checks, covered **50 distinct repos**; the SQLite check above is additional. The extra 47 are mostly educational CRUD apps, not a representative sample of production systems. In those runs, 36 created two records and 11 created one; ten of the 11 one-record runs returned an error on retry. Those are historical v0.1.2 verdicts; the current version would flag those ten rejected retries as violations. The linked notes preserve the original run data.
 
 ## Install
@@ -66,6 +70,7 @@ If you'd rather build it yourself, run `go build -o recoverylab ./cmd/recoveryla
 | `lost-response` | Lets the service process a request, drops the reply, then sends the same request again. | Whether a retry repeats the side effect and whether the client gets a successful reply. |
 | `concurrent-duplicates` | Sends 2–64 copies of the same request together. | Whether this burst caused a duplicate side effect or returned a response code outside the optional list you allow. |
 | `crash-after-ack` | Starts your service, sends a request, kills its process after a 2xx response, then restarts it. It can retry the same request after restart. | Whether the acknowledged effect survived, and whether the retry keeps the same result without a second effect. |
+| `key-reuse` | Sends one request, changes its JSON body, and sends it again with the same idempotency key. | Whether the changed request is rejected with your declared 4xx code and leaves no second effect. |
 
 RecoveryLab reads your state endpoint before and after the experiment. For each check, it compares the observed integer with `baseline + expected_delta`. A crash scenario with a retry also checks state before that retry. Lost-response retries, and post-restart retries when enabled, require a successful (2xx) reply by default. It can only judge the state and reply you expose; a passing run is not proof that every possible side effect is safe.
 
@@ -139,6 +144,8 @@ go run ./cmd/recoverylab run examples/lost-response.json
 
 Stop the fixture before changing its mode. To try the duplicate bug, start it with `--mode duplicate-bug` and a **new journal path**, then run the same scenario. For overlapping requests, use [examples/concurrent-duplicates.json](examples/concurrent-duplicates.json) and the fixture's `race-bug` mode.
 
+For a changed-payload test, run [examples/key-reuse.json](examples/key-reuse.json) against the `correct` fixture. It should return `PASS` with HTTP 422 and one write. Against `duplicate-bug` with a fresh journal, it should return `VIOLATION` with two writes. The scenario requires an `Idempotency-Key` header and two JSON bodies with a real value difference. If your API promises a different rejection status, add `"expected_reuse_status": 409` at the top level of the scenario. The default 422 comes from an [expired IETF Internet-Draft](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-idempotency-key-header#section-2.7); use your own API contract as the source of truth. See the [outside-project check](docs/key-reuse-check.md) for a reproduction recipe and measured results.
+
 For a concurrent scenario, add `"concurrent_response": { "allowed_statuses": [201, 409] }` if your API returns 201 to the winning request and 409 while that request is still running. Any other code then becomes a `VIOLATION`, even if the final count is correct. Use the codes your API actually promises. Without this block, concurrent response codes are recorded but only the state checks decide the verdict.
 
 For a Docker Compose service, [publish its HTTP port on host loopback](https://docs.docker.com/get-started/docker-concepts/running-containers/publishing-ports/), for example `ports: ["127.0.0.1:8080:8080"]`, and use `http://127.0.0.1:8080` in the scenario. RecoveryLab cannot directly address a container-only bridge IP from the host. The managed-process crash scenario requires a foreground process it can kill; it does not kill a Docker container.
@@ -184,6 +191,8 @@ For a machine-readable report, run `go run ./cmd/recoverylab run --format json -
 When a crash scenario includes a post-restart retry, the JSON report has both `after_restart_checks` (before retry) and `checks` (after retry). A mismatch in either set is a `VIOLATION`.
 
 RecoveryLab accepts loopback HTTP(S) URLs only and does not follow redirects. Its current scope is one operation and up to 16 named integer checks per run. Those checks can still miss effects that your state endpoints do not show.
+
+The `key-reuse` scenario checks the exact rejection status and the declared state count. It does not compare the rejection body or determine whether a service's fingerprint covers every relevant field. It sends an intentionally invalid second request to test how the service handles accidental key reuse.
 
 Concurrent response codes decide `PASS` or `VIOLATION` only when `concurrent_response.allowed_statuses` is set. In lost-response runs, the retry status always decides the verdict. Matching a selected JSON value is optional for lost-response runs and checks only those selected fields, not the whole response or its timing. Concurrent runs do not compare response bodies. The request body and observation response are limited to 1 MiB each.
 

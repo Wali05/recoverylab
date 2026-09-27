@@ -73,6 +73,7 @@ Scenarios:
   lost-response    Hide an acknowledged response, retry, and verify state.
   concurrent-duplicates  Send 2–64 copies at once and verify state.
   crash-after-ack  Kill and restart a managed service; optionally retry afterward.
+  key-reuse        Change the body, reuse its key, and check rejection and state.
 
 Run "recoverylab demo" for a self-contained example with working and buggy services.
 See examples/ and README.md to test your own local service.`)

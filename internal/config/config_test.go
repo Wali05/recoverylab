@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,5 +169,38 @@ func TestConcurrentResponseValidation(t *testing.T) {
 	c.Scenario = "lost-response"
 	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "only applies") {
 		t.Fatalf("wrong scenario: got %v", err)
+	}
+}
+
+func TestKeyReuseValidationAndRunID(t *testing.T) {
+	delta := int64(1)
+	c := Config{
+		Name: "changed-payload", Scenario: "key-reuse",
+		Request:     Request{Method: "POST", URL: "http://127.0.0.1:8080/orders", Headers: map[string]string{"Idempotency-Key": "order-{{run_id}}"}, Body: json.RawMessage(`{"id":"{{run_id}}","amount":100}`)},
+		ChangedBody: json.RawMessage(`{"amount":200,"id":"{{run_id}}"}`),
+		Observe:     Observation{URL: "http://127.0.0.1:8080/state", Pointer: "/count", ExpectedDelta: &delta},
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if c.ReuseStatus() != 422 {
+		t.Fatalf("default status = %d", c.ReuseStatus())
+	}
+	c.Resolve("fixed-id")
+	if string(c.ChangedBody) != `{"amount":200,"id":"fixed-id"}` || c.Request.Headers["Idempotency-Key"] != "order-fixed-id" {
+		t.Fatalf("run ID not resolved consistently: %+v", c)
+	}
+	c.ExpectedReuseStatus = 409
+	if err := c.Validate(); err != nil {
+		t.Fatalf("a declared 409 contract should be valid: %v", err)
+	}
+	c.ChangedBody = json.RawMessage(`{"amount":100,"id":"fixed-id"}`)
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "must change a JSON value") {
+		t.Fatalf("key order alone is not a changed payload: %v", err)
+	}
+	c.ChangedBody = json.RawMessage(`{"amount":200,"id":"fixed-id"}`)
+	c.Request.Headers = nil
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "Idempotency-Key") {
+		t.Fatalf("missing key should fail validation: %v", err)
 	}
 }

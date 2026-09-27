@@ -53,6 +53,13 @@ type ConcurrentResponseCheck struct {
 	Issues          []string `json:"issues,omitempty"`
 }
 
+type KeyReuseCheck struct {
+	ExpectedHTTPStatus int      `json:"expected_http_status"`
+	ActualHTTPStatus   int      `json:"actual_http_status"`
+	Passed             bool     `json:"passed"`
+	Issues             []string `json:"issues,omitempty"`
+}
+
 type Report struct {
 	Name               string                   `json:"name"`
 	Scenario           string                   `json:"scenario"`
@@ -67,6 +74,7 @@ type Report struct {
 	AfterRestartChecks []StateCheck             `json:"after_restart_checks,omitempty"`
 	RetryResponse      *ResponseCheck           `json:"retry_response,omitempty"`
 	ConcurrentResponse *ConcurrentResponseCheck `json:"concurrent_response,omitempty"`
+	KeyReuseResponse   *KeyReuseCheck           `json:"key_reuse_response,omitempty"`
 	FaultInjected      bool                     `json:"fault_injected"`
 	Attempts           []Attempt                `json:"attempts"`
 	Events             []Event                  `json:"events"`
@@ -75,6 +83,36 @@ type Report struct {
 
 func (r *Report) event(step, detail string) {
 	r.Events = append(r.Events, Event{At: time.Now().UTC().Format(time.RFC3339Nano), Step: step, Detail: detail})
+}
+
+func runKeyReuse(ctx context.Context, request config.Request, changedBody json.RawMessage, expectedStatus int, r *Report) error {
+	firstStatus, firstErr := send(ctx, request, request.URL)
+	r.Attempts = append(r.Attempts, Attempt{Kind: "original", HTTPStatus: firstStatus, ClientError: errorString(firstErr)})
+	if firstErr != nil {
+		return fmt.Errorf("original request: %w", firstErr)
+	}
+	if firstStatus < 200 || firstStatus >= 300 {
+		return fmt.Errorf("service did not acknowledge original operation: HTTP %d", firstStatus)
+	}
+	r.event("write", fmt.Sprintf("original payload was acknowledged with HTTP %d", firstStatus))
+
+	changedRequest := request
+	changedRequest.Body = changedBody
+	r.event("key reuse", "sent a changed JSON body with the same method, URL, and Idempotency-Key")
+	changedStatus, changedErr := send(ctx, changedRequest, changedRequest.URL)
+	r.Attempts = append(r.Attempts, Attempt{Kind: "changed-payload", HTTPStatus: changedStatus, ClientError: errorString(changedErr)})
+	if changedErr != nil {
+		return fmt.Errorf("changed-payload request: %w", changedErr)
+	}
+	check := KeyReuseCheck{ExpectedHTTPStatus: expectedStatus, ActualHTTPStatus: changedStatus, Passed: changedStatus == expectedStatus}
+	if !check.Passed {
+		check.Issues = append(check.Issues, fmt.Sprintf("changed payload returned HTTP %d; expected HTTP %d", changedStatus, expectedStatus))
+		r.event("reuse check", check.Issues[0])
+	} else {
+		r.event("reuse check", fmt.Sprintf("changed payload was rejected with HTTP %d", changedStatus))
+	}
+	r.KeyReuseResponse = &check
+	return nil
 }
 
 // Run performs one experiment. ERROR means the experiment was inconclusive;
@@ -145,6 +183,8 @@ func Run(parent context.Context, c config.Config) (r Report) {
 		err = runConcurrent(ctx, c.Request, c.Workers(), c.ConcurrentResponse, &r)
 	case "crash-after-ack":
 		err = runCrashAfterAck(ctx, c.Request, c.RetryResponse, managed, observations, &r)
+	case "key-reuse":
+		err = runKeyReuse(ctx, c.Request, c.ChangedBody, c.ReuseStatus(), &r)
 	}
 	var mismatches []string
 	for _, check := range r.AfterRestartChecks {
@@ -166,6 +206,9 @@ func Run(parent context.Context, c config.Config) (r Report) {
 	}
 	if r.ConcurrentResponse != nil {
 		mismatches = append(mismatches, r.ConcurrentResponse.Issues...)
+	}
+	if r.KeyReuseResponse != nil {
+		mismatches = append(mismatches, r.KeyReuseResponse.Issues...)
 	}
 
 	for i, o := range observations {

@@ -1,0 +1,32 @@
+{
+  "name": "idempot-js-sqlite-key-reuse",
+  "scenario": "key-reuse",
+  "timeout": "30s",
+  "service": {
+    "command": [
+      "node",
+      "C:/path/to/recoverylab/docs/experiments/idempotency/idempot-js-sqlite-host.mjs",
+      "C:/path/to/idempot-js",
+      "C:/path/to/disposable-key-reuse.db",
+      "18093",
+      "guard"
+    ],
+    "ready_url": "http://127.0.0.1:18093/health",
+    "startup_timeout": "15s"
+  },
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:18093/orders",
+    "headers": {
+      "Content-Type": "application/json",
+      "Idempotency-Key": "recoverylab-{{run_id}}-mismatch"
+    },
+    "body": { "item": "book-{{run_id}}", "amount": 100 }
+  },
+  "changed_body": { "item": "pen-{{run_id}}", "amount": 100 },
+  "observe": {
+    "url": "http://127.0.0.1:18093/state",
+    "pointer": "/count",
+    "expected_delta": 1
+  }
+}

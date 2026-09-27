@@ -1,0 +1,71 @@
+{
+  "name": "idempot-js-sqlite-key-reuse",
+  "scenario": "key-reuse",
+  "run_id": "a2c98247344ea9d0",
+  "status": "VIOLATION",
+  "started_at": "2026-09-27T10:09:20.9086983Z",
+  "duration_ms": 260,
+  "baseline": 0,
+  "expected": 1,
+  "observed": 2,
+  "checks": [
+    {
+      "name": "state",
+      "baseline": 0,
+      "expected": 1,
+      "observed": 2
+    }
+  ],
+  "key_reuse_response": {
+    "expected_http_status": 422,
+    "actual_http_status": 201,
+    "passed": false,
+    "issues": [
+      "changed payload returned HTTP 201; expected HTTP 422"
+    ]
+  },
+  "fault_injected": false,
+  "attempts": [
+    {
+      "kind": "original",
+      "http_status": 201
+    },
+    {
+      "kind": "changed-payload",
+      "http_status": 201
+    }
+  ],
+  "events": [
+    {
+      "at": "2026-09-27T10:09:21.1480274Z",
+      "step": "service",
+      "detail": "started and ready"
+    },
+    {
+      "at": "2026-09-27T10:09:21.1510905Z",
+      "step": "baseline",
+      "detail": "state: observed 0; expected final value 1"
+    },
+    {
+      "at": "2026-09-27T10:09:21.156225Z",
+      "step": "write",
+      "detail": "original payload was acknowledged with HTTP 201"
+    },
+    {
+      "at": "2026-09-27T10:09:21.156225Z",
+      "step": "key reuse",
+      "detail": "sent a changed JSON body with the same method, URL, and Idempotency-Key"
+    },
+    {
+      "at": "2026-09-27T10:09:21.1613089Z",
+      "step": "reuse check",
+      "detail": "changed payload returned HTTP 201; expected HTTP 422"
+    },
+    {
+      "at": "2026-09-27T10:09:21.1629829Z",
+      "step": "verify",
+      "detail": "state: expected 1, observed 2"
+    }
+  ],
+  "error": "check failed: changed payload returned HTTP 201; expected HTTP 422; state expected 1, observed 2"
+}

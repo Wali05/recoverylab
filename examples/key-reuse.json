@@ -1,0 +1,19 @@
+{
+  "name": "changed-payload-must-not-create-another-operation",
+  "scenario": "key-reuse",
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:8080/operations",
+    "headers": {
+      "Content-Type": "application/json",
+      "Idempotency-Key": "recoverylab-{{run_id}}"
+    },
+    "body": { "amount": 100 }
+  },
+  "changed_body": { "amount": 200 },
+  "observe": {
+    "url": "http://127.0.0.1:8080/state",
+    "pointer": "/count",
+    "expected_delta": 1
+  }
+}

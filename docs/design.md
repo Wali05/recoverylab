@@ -43,6 +43,16 @@ RecoveryLab manages a foreground process and forcibly kills it after receiving t
 
 The readiness URL must not already return 2xx before the managed process starts. That check prevents a leftover server on the same port from creating a false pass. The command should launch the actual server executable without a shell wrapper, so the process being killed is the process serving requests.
 
+## Reuse a key with a changed payload
+
+```text
+baseline → original write (2xx) → changed JSON body, same key → exact 4xx check → final state check
+```
+
+This is a contract check, not a network fault. The report's `fault_injected` field is `false` for this scenario. Both requests use the same method, URL, and headers; only the JSON body changes. The config validator rejects bodies that differ only in formatting or object-key order. The expected rejection code is 422 unless `expected_reuse_status` declares another 4xx code. An unsuccessful original request or an incomplete changed request produces `ERROR`, because the experiment's preconditions were not met. A successful original request followed by an unexpected response code or a second observed write produces `VIOLATION`.
+
+The state check can reveal a second write, while the response check can reveal a silent replay that left the count at one. These checks do not verify every state field or the server's fingerprinting algorithm.
+
 ## Verdicts and their limits
 
 Each state invariant is `observed integer = baseline integer + expected_delta`. `PASS` means every declared check held, including response checks and, for a crash with retry, both the before-retry and final state checks. `VIOLATION` means at least one check definitely failed. `ERROR` means the runner could not establish the experiment's preconditions or read enough state for a verdict. If the original reply lacks a JSON value a scenario asks to compare, the comparison is inconclusive; if the retry lacks or changes that value, the result is a `VIOLATION`. A durability mismatch already observed after restart remains a `VIOLATION` even if a later retry cannot be completed; the report also says that retry was incomplete.
