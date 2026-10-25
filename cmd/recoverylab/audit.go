@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wali05/recoverylab/internal/audit"
 	"github.com/Wali05/recoverylab/internal/config"
+	"github.com/Wali05/recoverylab/internal/report"
 )
 
 func runAudit(args []string) int {
@@ -18,6 +19,8 @@ func runAudit(args []string) int {
 	format := fs.String("format", "text", "text or json")
 	output := fs.String("output", "", "write the JSON audit to a file")
 	bursts := fs.Int("bursts", 5, "concurrent bursts to try, 1-100; races don't show up every time")
+	junit := fs.String("junit", "", "write a JUnit XML report for CI")
+	html := fs.String("html", "", "write a self-contained HTML report")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -58,12 +61,12 @@ func runAudit(args []string) int {
 	if text {
 		printAuditHeader(os.Stdout, s, base)
 	}
-	report := audit.Run(context.Background(), base, steps, func(r audit.Result) {
+	outcome := audit.Run(context.Background(), base, steps, func(r audit.Result) {
 		if text {
 			printAuditLine(os.Stdout, s, r)
 		}
 	})
-	encoded, err := json.MarshalIndent(report, "", "  ")
+	encoded, err := json.MarshalIndent(outcome, "", "  ")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "encode audit:", err)
 		return 2
@@ -74,12 +77,16 @@ func runAudit(args []string) int {
 			return 2
 		}
 	}
+	if err := writeReports(outcome, *junit, *html); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
 	if text {
-		printAuditSummary(os.Stdout, s, report)
+		printAuditSummary(os.Stdout, s, outcome)
 	} else {
 		fmt.Println(string(encoded))
 	}
-	switch report.Status {
+	switch outcome.Status {
 	case "PASS":
 		return 0
 	case "VIOLATION":
@@ -87,6 +94,28 @@ func runAudit(args []string) int {
 	default:
 		return 2
 	}
+}
+
+// writeReports saves the optional JUnit and HTML versions of a result.
+func writeReports(r audit.Report, junitPath, htmlPath string) error {
+	write := func(path, kind string, render func(io.Writer) error) error {
+		if path == "" {
+			return nil
+		}
+		f, err := os.Create(path)
+		if err != nil {
+			return fmt.Errorf("write %s report: %w", kind, err)
+		}
+		if err := render(f); err != nil {
+			_ = f.Close()
+			return fmt.Errorf("write %s report: %w", kind, err)
+		}
+		return f.Close()
+	}
+	if err := write(junitPath, "JUnit", func(w io.Writer) error { return report.JUnit(w, r) }); err != nil {
+		return err
+	}
+	return write(htmlPath, "HTML", func(w io.Writer) error { return report.HTML(w, r, currentVersion()) })
 }
 
 func printAuditHeader(w io.Writer, s style, c config.Config) {

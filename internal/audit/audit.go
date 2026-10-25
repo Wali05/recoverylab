@@ -275,6 +275,35 @@ func Run(ctx context.Context, base config.Config, steps []Step, progress func(Re
 	return report
 }
 
+// FromRuns wraps repeated runs of one scenario in an audit report, so every
+// output format only has to understand one shape.
+func FromRuns(c config.Config, reports []engine.Report) Report {
+	result := Result{Scenario: c.Scenario, Title: titles[c.Scenario], Reports: reports, Runs: len(reports)}
+	for _, r := range reports {
+		switch r.Status {
+		case "PASS":
+			result.Passed++
+		case "VIOLATION":
+			result.Violations++
+		default:
+			result.Errors++
+		}
+	}
+	report := Report{Name: c.Name, Method: strings.ToUpper(c.Request.Method), URL: c.Request.URL, Status: "PASS"}
+	switch {
+	case result.Violations > 0:
+		result.Status, report.Status, report.Violations = "VIOLATION", "VIOLATION", 1
+	case result.Errors > 0:
+		result.Status, report.Status, report.Errors = "ERROR", "ERROR", 1
+	default:
+		result.Status, report.Held = "PASS", 1
+	}
+	d := explain.Report(first(result))
+	result.Diagnosis = &d
+	report.Results = []Result{result}
+	return report
+}
+
 // first returns the run that best represents a result: the first violation,
 // then the first error, then any run at all.
 func first(r Result) engine.Report {

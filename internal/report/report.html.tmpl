@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RecoveryLab · {{.Name}}</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --ink: #1c1d1f; --muted: #6b6f76; --line: #e3e3df;
+  --pass: #1f7a4d; --pass-bg: #e6f4ec; --bad: #b42318; --bad-bg: #fdecea;
+  --warn: #9a6700; --warn-bg: #fff4d6; --skip: #6b6f76; --skip-bg: #efefec;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111214; --panel: #1a1b1e; --ink: #e9e9e7; --muted: #9a9ea6; --line: #2c2e33;
+    --pass: #4cc38a; --pass-bg: #15291f; --bad: #ff7a6e; --bad-bg: #331a18;
+    --warn: #e3b341; --warn-bg: #2e2612; --skip: #9a9ea6; --skip-bg: #232428;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 880px; margin: 0 auto; padding: 40px 16px 64px; }
+header { margin-bottom: 28px; }
+.eyebrow { color: var(--muted); font-size: 13px; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 6px; }
+h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; overflow-wrap: anywhere; }
+.request { font-family: var(--mono); font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.verdict { display: flex; gap: 12px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+.pill { display: inline-block; font: 600 12px/1 var(--mono); letter-spacing: .03em; padding: 6px 9px; border-radius: 6px; white-space: nowrap; }
+.pill.pass { color: var(--pass); background: var(--pass-bg); }
+.pill.violation { color: var(--bad); background: var(--bad-bg); }
+.pill.error { color: var(--warn); background: var(--warn-bg); }
+.pill.skipped { color: var(--skip); background: var(--skip-bg); }
+.score { font-weight: 600; }
+section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin-bottom: 14px; }
+section.card.violation { border-left: 4px solid var(--bad); }
+section.card.error { border-left: 4px solid var(--warn); }
+.card-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.card-head h2 { font-size: 17px; margin: 0; }
+.note { color: var(--muted); font-size: 13px; }
+.summary { margin: 10px 0 0; }
+dl.why { display: grid; grid-template-columns: 120px 1fr; gap: 6px 14px; margin: 14px 0 0; }
+dl.why dt { color: var(--muted); font-size: 13px; padding-top: 1px; }
+dl.why dd { margin: 0; }
+dl.why ul { margin: 0; padding-left: 18px; }
+details { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0 4px; font-size: 14px; }
+th, td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; }
+td.num { font-family: var(--mono); }
+td.bad { color: var(--bad); font-weight: 600; }
+ol.timeline { list-style: none; margin: 10px 0 0; padding: 0; font-size: 13.5px; }
+ol.timeline li { display: grid; grid-template-columns: 74px 110px 1fr; gap: 10px; padding: 4px 0; }
+.t { font-family: var(--mono); color: var(--muted); font-size: 12px; padding-top: 2px; }
+.step { color: var(--muted); }
+.raw { font-family: var(--mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; overflow-wrap: anywhere; }
+footer { color: var(--muted); font-size: 13px; margin-top: 28px; }
+footer p { margin: 4px 0; }
+@media (max-width: 560px) {
+  dl.why { grid-template-columns: 1fr; gap: 2px; }
+  dl.why dd { margin-bottom: 8px; }
+  ol.timeline li { grid-template-columns: 64px 1fr; }
+  ol.timeline .step { grid-column: 2; }
+  ol.timeline li > span:last-child { grid-column: 1 / -1; }
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <p class="eyebrow">RecoveryLab report</p>
+  <h1>{{.Name}}</h1>
+  <div class="request">{{.Method}} {{.URL}}</div>
+  <div class="verdict">
+    <span class="pill {{lower .Status}}">{{.Status}}</span>
+    <span class="score">{{.Held}} of {{.Ran}} {{if eq .Ran 1}}check{{else}}checks{{end}} held</span>
+    {{if .Skipped}}<span class="note">{{.Skipped}} skipped</span>{{end}}
+  </div>
+</header>
+
+{{range .Results}}
+<section class="card {{lower .Status}}">
+  <div class="card-head">
+    <span class="pill {{lower .Status}}">{{mark .Status}} {{.Status}}</span>
+    <h2>{{.Title}}</h2>
+    {{if gt .Runs 1}}<span class="note">{{.Passed}} of {{.Runs}} runs held</span>{{end}}
+    {{if and .Note (ne .Status "SKIPPED")}}<span class="note">{{.Note}}</span>{{end}}
+  </div>
+  {{if eq .Status "SKIPPED"}}
+  <p class="summary">{{.Reason}}</p>
+  {{else}}
+  {{with .Diagnosis}}
+  <p class="summary">{{.Summary}}</p>
+  {{if or .Cause .Fixes}}
+  <dl class="why">
+    {{if .Cause}}<dt>Likely cause</dt><dd>{{.Cause}}</dd>{{end}}
+    {{if .Fixes}}<dt>How to fix</dt><dd><ul>{{range .Fixes}}<li>{{.}}</li>{{end}}</ul></dd>{{end}}
+  </dl>
+  {{end}}
+  {{end}}
+  {{with pick .}}
+  <details{{if ne .Status "PASS"}} open{{end}}>
+    <summary>What RecoveryLab saw · run {{.RunID}} · {{.DurationMS}} ms</summary>
+    {{if or .Checks .AfterRestartChecks}}
+    <table>
+      <tr><th>Check</th><th>Before</th><th>Expected</th><th>Observed</th></tr>
+      {{range .AfterRestartChecks}}{{if .Observed}}<tr><td>{{.Name}} <span class="note">after restart</span></td><td class="num">{{.Baseline}}</td><td class="num">{{.Expected}}</td><td class="num{{if ne (deref .Observed) .Expected}} bad{{end}}">{{deref .Observed}}</td></tr>{{end}}{{end}}
+      {{range .Checks}}{{if .Observed}}<tr><td>{{.Name}}</td><td class="num">{{.Baseline}}</td><td class="num">{{.Expected}}</td><td class="num{{if ne (deref .Observed) .Expected}} bad{{end}}">{{deref .Observed}}</td></tr>{{end}}{{end}}
+    </table>
+    {{end}}
+    {{with tally .Attempts}}<p class="note">Requests: {{range $i, $t := .}}{{if $i}}, {{end}}{{$t}}{{end}}</p>{{end}}
+    {{$start := .StartedAt}}
+    <ol class="timeline">
+      {{range .Events}}<li><span class="t">{{offset $start .At}}</span><span class="step">{{.Step}}</span><span>{{.Detail}}</span></li>{{end}}
+    </ol>
+    {{if .Error}}<div class="raw">{{.Error}}</div>{{end}}
+  </details>
+  {{end}}
+  {{end}}
+</section>
+{{end}}
+
+<footer>
+  <p>Each check compares the state your service exposes before and after a real failure. A pass covers this request and these counters, not every path through the service.</p>
+  <p>RecoveryLab {{.Version}} · {{.Generated}}</p>
+</footer>
+</main>
+</body>
+</html>
