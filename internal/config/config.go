@@ -68,7 +68,22 @@ type Observation struct {
 	URL           string            `json:"url"`
 	Headers       map[string]string `json:"headers,omitempty"`
 	Pointer       string            `json:"pointer"`
+	Measure       string            `json:"measure,omitempty"`
 	ExpectedDelta *int64            `json:"expected_delta"`
+}
+
+// Many list endpoints return an array instead of a count. "length" counts the
+// items in the array at Pointer so no shim service is needed.
+const (
+	MeasureValue  = "value"
+	MeasureLength = "length"
+)
+
+func (o Observation) Counts() string {
+	if o.Measure == "" {
+		return MeasureValue
+	}
+	return o.Measure
 }
 
 func Load(path string) (Config, error) {
@@ -247,7 +262,7 @@ func (c Config) Validate() error {
 	if err := localHTTPURL(c.Request.URL); err != nil {
 		return fmt.Errorf("request.url: %w", err)
 	}
-	hasObserve := c.Observe.Name != "" || c.Observe.URL != "" || c.Observe.ExpectedDelta != nil || c.Observe.Pointer != "" || len(c.Observe.Headers) != 0
+	hasObserve := c.Observe.Name != "" || c.Observe.URL != "" || c.Observe.ExpectedDelta != nil || c.Observe.Pointer != "" || c.Observe.Measure != "" || len(c.Observe.Headers) != 0
 	if len(c.Checks) > 0 && hasObserve {
 		return errors.New("use either observe or checks, not both")
 	}
@@ -275,6 +290,9 @@ func (c Config) Validate() error {
 		}
 		if !ValidJSONPointer(o.Pointer) {
 			return fmt.Errorf("%s.pointer must be an RFC 6901 JSON pointer, such as /count", label)
+		}
+		if o.Measure != "" && o.Measure != MeasureValue && o.Measure != MeasureLength {
+			return fmt.Errorf("%s.measure must be value or length", label)
 		}
 		for k, v := range o.Headers {
 			if strings.ContainsAny(k, "\r\n") || strings.ContainsAny(v, "\r\n") {

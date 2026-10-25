@@ -505,6 +505,33 @@ func TestLostResponseMissingOriginalPointerIsInconclusive(t *testing.T) {
 	}
 }
 
+func TestLengthMeasureCountsListEndpoint(t *testing.T) {
+	var mu sync.Mutex
+	var orders []map[string]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": orders})
+			return
+		}
+		orders = append(orders, map[string]string{"id": "x"}) // No deduplication at all.
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+	c := scenario(server.URL, "lost-response", nil)
+	c.Observe.Pointer = "/data"
+	c.Observe.Measure = config.MeasureLength
+	r := Run(context.Background(), c)
+	if r.Status != "VIOLATION" || r.Baseline == nil || *r.Baseline != 0 || r.Observed == nil || *r.Observed != 2 {
+		t.Fatalf("array length should expose the duplicate: %+v", r)
+	}
+	c.Observe.Measure = ""
+	if r := Run(context.Background(), c); r.Status != "ERROR" || !strings.Contains(r.Error, "not a JSON integer") {
+		t.Fatalf("an array must not be read as a count without measure=length: %+v", r)
+	}
+}
+
 func TestObservationRejectsExtraJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"count":0}{"count":1}`))

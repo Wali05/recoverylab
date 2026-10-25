@@ -496,6 +496,16 @@ func observe(ctx context.Context, o config.Observation) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	if o.Counts() == config.MeasureLength {
+		if value == nil {
+			return 0, nil // Go and some ORMs encode an empty list as null.
+		}
+		items, ok := value.([]any)
+		if !ok {
+			return 0, fmt.Errorf("value at %q is not a JSON array", o.Pointer)
+		}
+		return int64(len(items)), nil
+	}
 	num, ok := value.(json.Number)
 	if !ok {
 		return 0, fmt.Errorf("value at %q is not a JSON integer", o.Pointer)

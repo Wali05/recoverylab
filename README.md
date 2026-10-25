@@ -115,6 +115,8 @@ go run ./cmd/recoverylab run scenario.json
 
 The `retry_response` block compares a stable value in the original and retry replies. In this example, both replies must contain the same `/order_id`. Remove that block if your API doesn't return JSON with an order ID; the default 2xx retry check still runs. A different 2xx reply is allowed, such as `201 Created` followed by `200 OK`, as long as the selected values match. If your API contract deliberately returns a non-2xx code for duplicates, set `"allowed_statuses": [409]` inside `retry_response` to check for that code instead. Response bodies used for comparison are limited to 1 MiB and are not written to reports.
 
+Your API doesn't need a special count endpoint. If `GET /orders` returns a list, point at the array and add `"measure": "length"`: `{ "url": "http://127.0.0.1:8080/orders", "pointer": "/data", "measure": "length", "expected_delta": 1 }`. Use `"pointer": ""` when the response itself is the array. A `null` list counts as zero. Paginated lists only show one page, so use a page size larger than the test data.
+
 If the state endpoint needs authentication, add `"headers": { "Authorization": "Bearer ..." }` inside `observe`. Keep credentials out of files you commit.
 
 One count can hide another broken effect. To check several effects, replace `observe` with named `checks` (up to 16). For example, checking orders alone would miss a duplicate charge:

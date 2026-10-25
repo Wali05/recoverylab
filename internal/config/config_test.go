@@ -80,6 +80,14 @@ func TestMultipleChecksValidation(t *testing.T) {
 		t.Fatalf("duplicate name: got %v", err)
 	}
 	c.Checks[1].Name = "charges"
+	c.Checks[1].Measure = "size"
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "value or length") {
+		t.Fatalf("unknown measure: got %v", err)
+	}
+	c.Checks[1].Measure = MeasureLength
+	if err := c.Validate(); err != nil {
+		t.Fatalf("length measure: %v", err)
+	}
 	c.Observe = c.Checks[0]
 	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "either observe or checks") {
 		t.Fatalf("mixed observation modes: got %v", err)
