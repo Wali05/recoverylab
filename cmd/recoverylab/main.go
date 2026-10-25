@@ -37,6 +37,8 @@ func run(args []string) int {
 		return 0
 	case "run":
 		return runFile(args[1:])
+	case "init":
+		return initScenario(args[1:])
 	case "audit":
 		return runAudit(args[1:])
 	case "validate":
@@ -67,6 +69,7 @@ func usage() {
 
 Usage:
   recoverylab demo
+  recoverylab init --url WRITE_URL --state STATE_URL [--body JSON] [--out FILE]
   recoverylab audit [--bursts N] [--format text|json] [--output AUDIT.json] SCENARIO.json
   recoverylab validate SCENARIO.json
   recoverylab run [--format text|json] [--output REPORT.json] [--repeat N] SCENARIO.json
@@ -78,6 +81,7 @@ Scenarios:
   crash-after-ack  Kill and restart a managed service; optionally retry afterward.
   key-reuse        Change the body, reuse its key, and check rejection and state.
 
+"init" looks at your state endpoint and writes a scenario you can run straight away.
 "audit" runs every scenario that applies to one request and prints a report card.
 
 Run "recoverylab demo" for a self-contained example with working and buggy services.
