@@ -53,6 +53,18 @@ This is a contract check, not a network fault. The report's `fault_injected` fie
 
 The state check can reveal a second write, while the response check can reveal a silent replay that left the count at one. These checks do not verify every state field or the server's fingerprinting algorithm.
 
+## Audit
+
+`audit` derives one scenario per failure from a single file and runs them in order: lost response, concurrent duplicates, key reuse, then crash after ack. Settings that only make sense for one scenario stay with that scenario, so `concurrent_response` never reaches the lost-response run and `retry_response` never reaches the burst. Concurrent duplicates run as several independent bursts (five by default) and fail if any burst fails. Each step is still an ordinary experiment with its own run ID, baseline, and verdict.
+
+Key reuse needs a changed body. When the file has no `changed_body`, the audit changes the first number it finds (reading keys alphabetically) by one, or else the first string that doesn't contain `{{run_id}}`, or else the first boolean, and notes what it changed. A body with nothing to change, or a request without an `Idempotency-Key` header, skips the step. The crash step is skipped without a `service` block and otherwise always retries after restart, so it catches both a lost write and a service that forgets its keys.
+
+Skipped steps don't fail the audit; the report lists each one with its reason. The audit exits like `run`: 1 if any step found a violation, otherwise 2 if any step couldn't finish.
+
+## Explanations
+
+The plain-language explanation is computed from the report alone: which checks missed, in which direction, and which response check failed. It never sees your code, so "likely cause" really means likely. A count that didn't move at all after a 2xx is explained separately from a duplicate, because it usually points at an asynchronous write or a state endpoint that measures something else.
+
 ## Verdicts and their limits
 
 Each state invariant is `observed integer = baseline integer + expected_delta`. `PASS` means every declared check held, including response checks and, for a crash with retry, both the before-retry and final state checks. `VIOLATION` means at least one check definitely failed. `ERROR` means the runner could not establish the experiment's preconditions or read enough state for a verdict. If the original reply lacks a JSON value a scenario asks to compare, the comparison is inconclusive; if the retry lacks or changes that value, the result is a `VIOLATION`. A durability mismatch already observed after restart remains a `VIOLATION` even if a later retry cannot be completed; the report also says that retry was incomplete.

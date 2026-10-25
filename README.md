@@ -1,14 +1,16 @@
 # RecoveryLab
 
+[![CI](https://github.com/Wali05/recoverylab/actions/workflows/ci.yml/badge.svg)](https://github.com/Wali05/recoverylab/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Wali05/recoverylab)](https://github.com/Wali05/recoverylab/releases/latest)
+[![MIT license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 **A local failure lab for APIs that write data.**
 
 Imagine your API creates an order and sends `200 OK`, but the response disappears on the way back. The client retries. RecoveryLab recreates that moment, then checks whether the order was created once or twice.
 
-It can also send duplicate requests at the same time or restart your service after a process crash. RecoveryLab checks what changed in the state your local HTTP service exposes, instead of trusting the HTTP status alone.
+It can also send duplicate requests at the same time, restart your service after a process crash, or reuse an idempotency key for a *different* request. Each time, it checks what actually changed in the state your service exposes instead of trusting the HTTP status. When something breaks, it tells you what happened, the likely cause, and what usually fixes it.
 
-It can also check what happens when a client accidentally reuses an idempotency key for a *different* request. That case needs both a rejection and no second write.
-
-![Terminal preview of the six built-in RecoveryLab demo cases](docs/assets/demo.png)
+![RecoveryLab auditing a service with a check-then-write race and explaining the fix](docs/assets/audit.png)
 
 ## See it run
 
@@ -28,9 +30,35 @@ Crash after 2xx: correct PASS 1/1 | early ack bug VIOLATION 0/1
 Demo passed: 3 healthy cases held; 3 injected defects were detected.
 ```
 
+![Terminal preview of the six built-in RecoveryLab demo cases](docs/assets/demo.png)
+
 The numbers are observed/expected state values. `VIOLATION 2/1` means two writes occurred when the scenario expected one. A `VIOLATION` is the *correct* result for a deliberately buggy fixture.
 
 The built-in servers make those bugs easy to reproduce. A race in your own service may take several runs to catch.
+
+## Check your own API in two commands
+
+[Install RecoveryLab](#install) (or use `go run ./cmd/recoverylab` from a clone). Start your service locally, then point `init` at the write you care about and at something that shows its effect. That can be a count, or just the list endpoint:
+
+```sh
+recoverylab init --url http://127.0.0.1:8080/orders --state http://127.0.0.1:8080/orders --body '{"sku":"book","quantity":1}'
+recoverylab audit recoverylab.json
+```
+
+`init` reads the state endpoint, finds the numbers and lists that could count the write, and saves a scenario using the most likely one. It adds an `Idempotency-Key` header with a fresh value per run; pass `--no-key` if your API identifies operations another way, and `--header 'Authorization: Bearer …'` for auth.
+
+`audit` then runs every failure that applies to that request:
+
+- **Lost response:** the reply vanishes and the client retries.
+- **Concurrent duplicates:** five bursts of 16 identical requests (`--bursts` changes the count), because a race doesn't show up every time.
+- **Key reuse:** the same key with one value in the body changed, such as `quantity` going from 1 to 2. Set `changed_body` to choose the change yourself.
+- **Crash after ack:** RecoveryLab kills your process right after a 2xx, restarts it, checks the write survived, and retries. This one needs a [`service` block](#test-a-crash-after-a-successful-response) so RecoveryLab can start your server itself; otherwise it's skipped and the audit tells you why.
+
+Every finding comes with an explanation written for the person who has to fix it. For a check-then-write race, that's the race itself, plus "make claiming the key atomic: a unique index on the key plus `INSERT ... ON CONFLICT DO NOTHING`". If RecoveryLab couldn't finish (nothing listening, a pointer that doesn't match, a first request that failed), it says so and suggests the next thing to try instead of handing you a stack trace.
+
+To keep or share the result, add `--html report.html` for a single-file report with the full timeline, `--junit report.xml` for your CI's test tab, or `--markdown summary.md` for a pull request comment. They work with `run` too.
+
+## Tested against real projects
 
 Here are three checks outside the built-in demo:
 
@@ -74,9 +102,9 @@ If you'd rather build it yourself, run `go build -o recoverylab ./cmd/recoveryla
 
 RecoveryLab reads your state endpoint before and after the experiment. For each check, it compares the observed integer with `baseline + expected_delta`. A crash scenario with a retry also checks state before that retry. Lost-response retries, and post-restart retries when enabled, require a successful (2xx) reply by default. It can only judge the state and reply you expose; a passing run is not proof that every possible side effect is safe.
 
-## Try it against your service
+## Write a scenario by hand
 
-Use a disposable local service with a write endpoint and a `GET` endpoint that exposes the effect as an integer. Keep other writers out of the test while it runs. Here is a scenario for a service listening on `127.0.0.1:8080`:
+`init` writes this file for you, but every setting is plain JSON you can edit. Use a disposable local service with a write endpoint and a `GET` endpoint that exposes the effect as an integer. Keep other writers out of the test while it runs. Here is a scenario for a service listening on `127.0.0.1:8080`:
 
 ```json
 {
@@ -108,6 +136,8 @@ Save that as `scenario.json`, change the URLs and JSON pointers to match your se
 go run ./cmd/recoverylab validate scenario.json
 go run ./cmd/recoverylab run scenario.json
 ```
+
+`run` performs only the scenario named in the file; `audit` ignores that field and runs all of them.
 
 `validate` also rejects unknown settings and duplicate JSON keys, including keys nested in the request body, so an overwritten value cannot quietly change the experiment.
 
@@ -188,7 +218,7 @@ This tests a **process crash after acknowledgement**; it does not crash a separa
 
 These are the built `recoverylab` binary's exit codes. `go run` can wrap a nonzero exit; use the built binary when checking exit codes in CI.
 
-For a machine-readable report, run `go run ./cmd/recoverylab run --format json --output report.json scenario.json`. The JSON includes the request outcomes and a timestamped event timeline. The integer is selected with an [RFC 6901 JSON Pointer](https://www.rfc-editor.org/rfc/rfc6901), such as `/count`.
+Color output turns off when you pipe it or set `NO_COLOR`. For a machine-readable report, run `go run ./cmd/recoverylab run --format json --output report.json scenario.json`. The JSON includes the request outcomes and a timestamped event timeline. The integer is selected with an [RFC 6901 JSON Pointer](https://www.rfc-editor.org/rfc/rfc6901), such as `/count`.
 
 When a crash scenario includes a post-restart retry, the JSON report has both `after_restart_checks` (before retry) and `checks` (after retry). A mismatch in either set is a `VIOLATION`.
 
@@ -200,6 +230,25 @@ Concurrent response codes decide `PASS` or `VIOLATION` only when `concurrent_res
 
 A single run may miss an intermittent race. With the fixture or your service running, use `go run ./cmd/recoverylab run --repeat 20 examples/concurrent-duplicates.json` to try 20 independent bursts; each gets a fresh `{{run_id}}`. A batch reports every result and exits with a violation if any run found one. With `--format json` or `--output`, repeated runs produce one JSON object containing a `reports` array. Asynchronous or eventually consistent writes need a different check because RecoveryLab reads state immediately after the requests finish.
 
+## Use it in CI
+
+The repo is also a GitHub Action. Start your API in the job however you normally do, then:
+
+```yaml
+- uses: Wali05/recoverylab@main   # pin a commit SHA for repeatable builds
+  with:
+    scenario: recoverylab.json    # from recoverylab init
+- uses: actions/upload-artifact@v4
+  if: always()
+  with:
+    name: recoverylab-report
+    path: recoverylab-report.html
+```
+
+The job fails on a violation, the job page gets a summary table with the explanations, and the uploaded HTML report has the full timeline. Inputs: `command` (`audit` or `run`), `bursts`, `repeat`, `html`, `junit`, and `summary`. The `status` output is `PASS`, `VIOLATION`, or `ERROR`. RecoveryLab's own CI [runs the action](.github/workflows/ci.yml) against the built-in fixture on every push.
+
+Outside GitHub, install the binary and run `recoverylab audit --junit report.xml scenario.json`; exit codes are listed below.
+
 ## Develop
 
 ```sh
@@ -207,6 +256,6 @@ go test ./...
 go vet ./...
 ```
 
-The project uses only Go's standard library. Tagged builds produce Windows, Linux, and macOS binaries for GitHub Releases; see the [release workflow](.github/workflows/release.yml).
+The project uses only Go's standard library. Code lives in `internal/`: `engine` injects the faults, `audit` plans and runs a full audit, `explain` turns a report into plain language, and `report` writes HTML, JUnit, and Markdown. Tagged builds produce Windows, Linux, and macOS binaries for GitHub Releases; see the [release workflow](.github/workflows/release.yml).
 
 MIT licensed. See [LICENSE](LICENSE).
