@@ -75,8 +75,8 @@ Usage:
   recoverylab validate SCENARIO.json
   recoverylab run [--format text|json] [--output REPORT.json] [--repeat N] SCENARIO.json
 
-Both audit and run also take --junit FILE.xml for CI and --html FILE.html for a
-report you can share.
+Both audit and run also take --junit FILE.xml for CI, --html FILE.html for a
+report you can share, and --markdown FILE.md for a GitHub job summary.
   recoverylab version
 
 Scenarios:
@@ -113,6 +113,7 @@ func runFile(args []string) int {
 	repeat := fs.Int("repeat", 1, "run the scenario 1-100 times with fresh run IDs")
 	junit := fs.String("junit", "", "write a JUnit XML report for CI")
 	html := fs.String("html", "", "write a self-contained HTML report")
+	markdown := fs.String("markdown", "", "write a Markdown summary, such as $GITHUB_STEP_SUMMARY")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -153,7 +154,7 @@ func runFile(args []string) int {
 			return 2
 		}
 	}
-	if err := writeReports(audit.FromRuns(c, reports), *junit, *html); err != nil {
+	if err := writeReports(audit.FromRuns(c, reports), *junit, *html, *markdown); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}

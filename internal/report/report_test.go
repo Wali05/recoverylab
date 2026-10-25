@@ -62,3 +62,16 @@ func TestHTMLIsSelfContainedAndEscaped(t *testing.T) {
 		}
 	}
 }
+
+func TestMarkdownSummary(t *testing.T) {
+	var out strings.Builder
+	if err := Markdown(&out, sample()); err != nil {
+		t.Fatal(err)
+	}
+	md := out.String()
+	for _, want := range []string{"### ❌ RecoveryLab: orders &lt;script&gt;", "**0 of 1 checks held** · 1 skipped", "| ❌ | Lost response |", "| ➖ | Crash after ack | needs a service |", "<summary>Lost response: why and how to fix</summary>"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown is missing %q:\n%s", want, md)
+		}
+	}
+}

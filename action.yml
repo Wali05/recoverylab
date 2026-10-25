@@ -1,0 +1,76 @@
+name: RecoveryLab
+description: Check that a local API keeps its data right when replies get lost, requests race, keys get reused, or the process crashes.
+author: Wali05
+branding:
+  icon: shield
+  color: green
+
+inputs:
+  scenario:
+    description: Path to the scenario JSON file.
+    required: true
+  command:
+    description: "audit (every scenario that applies) or run (just the one in the file)."
+    default: audit
+  bursts:
+    description: Concurrent bursts for audit. Races don't show up every time, so more bursts catch more.
+    default: "5"
+  repeat:
+    description: Repeats for run.
+    default: "1"
+  html:
+    description: Where to write the HTML report. Upload it with actions/upload-artifact to keep it.
+    default: recoverylab-report.html
+  junit:
+    description: Where to write the JUnit XML report.
+    default: recoverylab-junit.xml
+  summary:
+    description: Add a summary table to the job page.
+    default: "true"
+
+outputs:
+  status:
+    description: PASS, VIOLATION, or ERROR.
+    value: ${{ steps.check.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v7
+      with:
+        go-version: stable
+        cache: false
+    - name: Build RecoveryLab
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: go build -o "$RUNNER_TEMP/recoverylab-bin/recoverylab$([[ "$RUNNER_OS" == Windows ]] && echo .exe)" ./cmd/recoverylab
+    - name: Run RecoveryLab
+      id: check
+      shell: bash
+      env:
+        INPUT_SCENARIO: ${{ inputs.scenario }}
+        INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_BURSTS: ${{ inputs.bursts }}
+        INPUT_REPEAT: ${{ inputs.repeat }}
+        INPUT_HTML: ${{ inputs.html }}
+        INPUT_JUNIT: ${{ inputs.junit }}
+        INPUT_SUMMARY: ${{ inputs.summary }}
+      run: |
+        set +e
+        export PATH="$RUNNER_TEMP/recoverylab-bin:$PATH"
+        args=(--html "$INPUT_HTML" --junit "$INPUT_JUNIT")
+        if [[ "$INPUT_SUMMARY" == true ]]; then args+=(--markdown "$GITHUB_STEP_SUMMARY"); fi
+        case "$INPUT_COMMAND" in
+          audit) args+=(--bursts "$INPUT_BURSTS") ;;
+          run) args+=(--repeat "$INPUT_REPEAT") ;;
+          *) echo "::error::command must be audit or run"; exit 2 ;;
+        esac
+        recoverylab "$INPUT_COMMAND" "${args[@]}" "$INPUT_SCENARIO"
+        code=$?
+        case $code in
+          0) echo "status=PASS" >> "$GITHUB_OUTPUT" ;;
+          1) echo "status=VIOLATION" >> "$GITHUB_OUTPUT"
+             echo "::error title=RecoveryLab::A failure check found a problem. See the job summary or $INPUT_HTML." ;;
+          *) echo "status=ERROR" >> "$GITHUB_OUTPUT" ;;
+        esac
+        exit $code

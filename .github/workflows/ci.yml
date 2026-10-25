@@ -25,3 +25,18 @@ jobs:
       - run: go vet ./...
       - run: go build ./cmd/recoverylab
       - run: go run ./cmd/recoverylab demo
+  # Run the repo's own action the way someone else would, against the
+  # built-in fixture. The crash example starts "recoverylab" from PATH.
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./
+        with:
+          scenario: examples/crash-retry.json
+          bursts: '3'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recoverylab-report
+          path: recoverylab-report.html

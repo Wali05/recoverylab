@@ -21,6 +21,7 @@ func runAudit(args []string) int {
 	bursts := fs.Int("bursts", 5, "concurrent bursts to try, 1-100; races don't show up every time")
 	junit := fs.String("junit", "", "write a JUnit XML report for CI")
 	html := fs.String("html", "", "write a self-contained HTML report")
+	markdown := fs.String("markdown", "", "write a Markdown summary, such as $GITHUB_STEP_SUMMARY")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -77,7 +78,7 @@ func runAudit(args []string) int {
 			return 2
 		}
 	}
-	if err := writeReports(outcome, *junit, *html); err != nil {
+	if err := writeReports(outcome, *junit, *html, *markdown); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
@@ -97,12 +98,17 @@ func runAudit(args []string) int {
 }
 
 // writeReports saves the optional JUnit and HTML versions of a result.
-func writeReports(r audit.Report, junitPath, htmlPath string) error {
+func writeReports(r audit.Report, junitPath, htmlPath, markdownPath string) error {
 	write := func(path, kind string, render func(io.Writer) error) error {
 		if path == "" {
 			return nil
 		}
-		f, err := os.Create(path)
+		// Append so several runs can share one GitHub job summary file.
+		flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+		if kind == "Markdown" {
+			flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
+		}
+		f, err := os.OpenFile(path, flags, 0644)
 		if err != nil {
 			return fmt.Errorf("write %s report: %w", kind, err)
 		}
@@ -115,7 +121,10 @@ func writeReports(r audit.Report, junitPath, htmlPath string) error {
 	if err := write(junitPath, "JUnit", func(w io.Writer) error { return report.JUnit(w, r) }); err != nil {
 		return err
 	}
-	return write(htmlPath, "HTML", func(w io.Writer) error { return report.HTML(w, r, currentVersion()) })
+	if err := write(htmlPath, "HTML", func(w io.Writer) error { return report.HTML(w, r, currentVersion()) }); err != nil {
+		return err
+	}
+	return write(markdownPath, "Markdown", func(w io.Writer) error { return report.Markdown(w, r) })
 }
 
 func printAuditHeader(w io.Writer, s style, c config.Config) {
