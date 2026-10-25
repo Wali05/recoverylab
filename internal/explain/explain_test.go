@@ -39,7 +39,7 @@ func TestDiagnosesFixtureBugs(t *testing.T) {
 		want       []string
 	}{
 		{"healthy retry", "correct", func(*config.Config) {}, "PASS", []string{"exactly once"}},
-		{"duplicate on retry", "duplicate-bug", func(*config.Config) {}, "VIOLATION", []string{"second time", "changed by 2", "unique constraint"}},
+		{"duplicate on retry", "duplicate-bug", func(*config.Config) {}, "VIOLATION", []string{"second time", "the count changed by 2 instead of 1", "unique constraint"}},
 		{"race", "race-bug", func(c *config.Config) { c.Scenario = "concurrent-duplicates"; c.Concurrency = 8 }, "VIOLATION", []string{"check-then-write race", "ON CONFLICT"}},
 		{"changed payload written", "duplicate-bug", func(c *config.Config) { c.Scenario = "key-reuse"; c.ChangedBody = json.RawMessage(`{"amount":2}`) }, "VIOLATION", []string{"another effect", "fingerprint"}},
 		{"changed payload rejected", "correct", func(c *config.Config) { c.Scenario = "key-reuse"; c.ChangedBody = json.RawMessage(`{"amount":2}`) }, "PASS", []string{"rejected"}},
@@ -91,6 +91,17 @@ func TestDiagnosesCrashOutcomes(t *testing.T) {
 		RetryResponse:      &engine.ResponseCheck{RetryHTTPStatus: 200, SameJSONPointers: []string{"/id"}, Issues: []string{`retry JSON value at "/id" differs from original or is missing`}}}
 	if d := Report(newID); !strings.Contains(d.Summary, "different /id") || !strings.Contains(d.Summary, "after restart") {
 		t.Fatalf("changed reply: %+v", d)
+	}
+}
+
+func TestNoVisibleChangePointsAtMeasurement(t *testing.T) {
+	for _, scenario := range []string{"lost-response", "concurrent-duplicates", "key-reuse"} {
+		r := engine.Report{Status: "VIOLATION", Scenario: scenario,
+			Checks:           []engine.StateCheck{{Name: "orders", Baseline: 3, Expected: 4, Observed: i64(3)}},
+			KeyReuseResponse: &engine.KeyReuseCheck{ExpectedHTTPStatus: 422, ActualHTTPStatus: 201}}
+		if d := Report(r); !strings.Contains(d.Summary, "orders didn't change at all") || !strings.Contains(d.Cause, "background job") {
+			t.Errorf("%s: %+v", scenario, d)
+		}
 	}
 }
 

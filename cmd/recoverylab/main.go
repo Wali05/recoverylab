@@ -37,6 +37,8 @@ func run(args []string) int {
 		return 0
 	case "run":
 		return runFile(args[1:])
+	case "audit":
+		return runAudit(args[1:])
 	case "validate":
 		return validate(args[1:])
 	case "demo":
@@ -65,6 +67,7 @@ func usage() {
 
 Usage:
   recoverylab demo
+  recoverylab audit [--bursts N] [--format text|json] [--output AUDIT.json] SCENARIO.json
   recoverylab validate SCENARIO.json
   recoverylab run [--format text|json] [--output REPORT.json] [--repeat N] SCENARIO.json
   recoverylab version
@@ -74,6 +77,8 @@ Scenarios:
   concurrent-duplicates  Send 2–64 copies at once and verify state.
   crash-after-ack  Kill and restart a managed service; optionally retry afterward.
   key-reuse        Change the body, reuse its key, and check rejection and state.
+
+"audit" runs every scenario that applies to one request and prints a report card.
 
 Run "recoverylab demo" for a self-contained example with working and buggy services.
 See examples/ and README.md to test your own local service.`)

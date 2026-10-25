@@ -66,12 +66,39 @@ func missed(checks []engine.StateCheck) (engine.StateCheck, bool) {
 }
 
 func effects(c engine.StateCheck) string {
-	got := *c.Observed - c.Baseline
-	want := c.Expected - c.Baseline
-	return fmt.Sprintf("%s changed by %d; it should have changed by %d", c.Name, got, want)
+	return fmt.Sprintf("%s changed by %d instead of %d", label(c), *c.Observed-c.Baseline, c.Expected-c.Baseline)
+}
+
+// label names a check in a sentence. Single-observation scenarios call
+// their check "state", which reads better as "the count".
+func label(c engine.StateCheck) string {
+	if c.Name == "state" {
+		return "the count"
+	}
+	return c.Name
+}
+
+// unchanged spots a 2xx with no visible effect at all. That points at the
+// measurement or an asynchronous write rather than at retry handling.
+func unchanged(checks []engine.StateCheck) (Diagnosis, bool) {
+	c, ok := missed(checks)
+	if !ok || *c.Observed != c.Baseline {
+		return Diagnosis{}, false
+	}
+	return Diagnosis{
+		Summary: fmt.Sprintf("The service answered 2xx, but %s didn't change at all.", label(c)),
+		Cause:   "Either the write happens later (a queue or background job), or the state endpoint isn't measuring what this request writes. RecoveryLab reads state as soon as the requests finish.",
+		Fixes: []string{
+			"Check that the state URL and pointer reflect this request: send it once with curl and watch the value.",
+			"If the write is asynchronous, reply only after it commits, or answer 202 and expose a count that includes pending work.",
+		},
+	}, true
 }
 
 func lostResponse(r engine.Report) Diagnosis {
+	if d, ok := unchanged(r.Checks); ok {
+		return d
+	}
 	if c, ok := missed(r.Checks); ok {
 		if *c.Observed > c.Expected {
 			return Diagnosis{
@@ -132,10 +159,13 @@ func statusAllowed(rr *engine.ResponseCheck) bool {
 }
 
 func concurrent(r engine.Report) Diagnosis {
+	if d, ok := unchanged(r.Checks); ok {
+		return d
+	}
 	n := len(r.Attempts)
 	if c, ok := missed(r.Checks); ok && *c.Observed > c.Expected {
 		return Diagnosis{
-			Summary: fmt.Sprintf("%d identical requests arrived together and the write happened %d times (%s).", n, *c.Observed-c.Baseline, c.Name),
+			Summary: fmt.Sprintf("%d identical requests arrived together and %s went up by %d instead of %d.", n, label(c), *c.Observed-c.Baseline, c.Expected-c.Baseline),
 			Cause:   "This is a check-then-write race. Several requests asked \"have I seen this key?\" before any of them recorded it, so they all went ahead.",
 			Fixes: []string{
 				"Make claiming the key atomic: a unique index on the key plus INSERT ... ON CONFLICT DO NOTHING, or a row lock, before doing the work.",
@@ -198,6 +228,9 @@ func lostAck(c engine.StateCheck, retried bool) Diagnosis {
 }
 
 func keyReuse(r engine.Report) Diagnosis {
+	if d, ok := unchanged(r.Checks); ok {
+		return d
+	}
 	if c, ok := missed(r.Checks); ok && *c.Observed > c.Expected {
 		return Diagnosis{
 			Summary: "A different request with an already-used key created another effect (" + effects(c) + ").",

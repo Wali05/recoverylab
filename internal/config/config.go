@@ -87,6 +87,16 @@ func (o Observation) Counts() string {
 }
 
 func Load(path string) (Config, error) {
+	c, err := Parse(path)
+	if err != nil {
+		return Config{}, err
+	}
+	return c, c.Validate()
+}
+
+// Parse reads a scenario strictly but leaves validation to the caller. An
+// audit uses this because it fills in the scenario itself.
+func Parse(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Config{}, err
@@ -111,7 +121,7 @@ func Load(path string) (Config, error) {
 	if c.Name == "" {
 		c.Name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	}
-	return c, c.Validate()
+	return c, nil
 }
 
 func NewRunID() (string, error) {
