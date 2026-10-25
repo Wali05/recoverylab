@@ -141,9 +141,9 @@ func runFile(args []string) int {
 	if *format == "json" {
 		fmt.Println(string(encoded))
 	} else if *repeat > 1 {
-		printBatch(batch)
+		printBatch(os.Stdout, newStyle(os.Stdout), batch)
 	} else {
-		printReport(reports[0])
+		printReport(os.Stdout, newStyle(os.Stdout), reports[0])
 	}
 	switch batch.Status {
 	case "PASS":
@@ -182,41 +182,6 @@ func summarize(reports []engine.Report) BatchReport {
 		b.Status = "ERROR"
 	}
 	return b
-}
-
-func printBatch(b BatchReport) {
-	fmt.Printf("\nRECOVERYLAB  %s  %d runs\n", b.Status, b.Runs)
-	for i, r := range b.Reports {
-		fmt.Printf("%3d  %-10s run=%s", i+1, r.Status, r.RunID)
-		if r.Error != "" {
-			fmt.Printf("  %s", r.Error)
-		}
-		fmt.Println()
-	}
-	fmt.Printf("\nPassed: %d  Violations: %d  Errors: %d\n\n", b.Passed, b.Violations, b.Errors)
-}
-
-func printReport(r engine.Report) {
-	fmt.Printf("\nRECOVERYLAB  %s  %s\n", r.Status, r.Name)
-	fmt.Printf("Scenario: %s    Run: %s    Duration: %d ms\n", r.Scenario, r.RunID, r.DurationMS)
-	fmt.Println(strings.Repeat("─", 68))
-	for _, e := range r.Events {
-		fmt.Printf("%-12s %s\n", e.Step, e.Detail)
-	}
-	if r.Baseline != nil && r.Observed != nil {
-		fmt.Printf("\nState: before=%d  expected=%d  observed=%d\n", *r.Baseline, *r.Expected, *r.Observed)
-	} else if len(r.Checks) > 1 {
-		fmt.Println()
-		for _, check := range r.Checks {
-			if check.Observed != nil {
-				fmt.Printf("%-16s before=%d  expected=%d  observed=%d\n", check.Name, check.Baseline, check.Expected, *check.Observed)
-			}
-		}
-	}
-	if r.Error != "" {
-		fmt.Println("\n" + r.Error)
-	}
-	fmt.Println()
 }
 
 func freeAddress() (string, error) {
