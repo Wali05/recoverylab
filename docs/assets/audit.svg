@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="913" viewBox="0 0 1200 913" role="img" aria-labelledby="title desc">
+  <title id="title">RecoveryLab audit terminal output</title>
+  <desc id="desc">An audit of a service with a check-then-write race. The lost-response check passes, concurrent duplicates and key reuse fail, the crash check is skipped, and RecoveryLab explains the likely cause and fix.</desc>
+  <rect width="1200" height="913" rx="18" fill="#0d1117"/>
+  <rect x="1" y="1" width="1198" height="911" rx="17" fill="none" stroke="#30363d" stroke-width="2"/>
+  <circle cx="34" cy="32" r="7" fill="#f85149"/>
+  <circle cx="59" cy="32" r="7" fill="#d29922"/>
+  <circle cx="84" cy="32" r="7" fill="#3fb950"/>
+  <text x="600" y="38" text-anchor="middle" fill="#8b949e" font-family="Segoe UI, sans-serif" font-size="17">RecoveryLab · audit</text>
+  <line x1="1" y1="60" x2="1199" y2="60" stroke="#30363d"/>
+  <g font-family="Consolas, ui-monospace, monospace" font-size="17">
+    <text y="100"><tspan x="30.0" fill="#8b949e">$</tspan><tspan x="50.4" fill="#e6edf3">recoverylab audit orders.json</tspan></text>
+    <text y="154"><tspan x="40.2" fill="#e6edf3" font-weight="700">RecoveryLab audit</tspan><tspan x="223.8" fill="#8b949e">· post-orders</tspan></text>
+    <text y="181"><tspan x="40.2" fill="#8b949e">POST http://127.0.0.1:8080/operations</tspan></text>
+    <text y="235"><tspan x="50.4" fill="#3fb950">✓</tspan><tspan x="70.8" fill="#3fb950" font-weight="700">PASS</tspan><tspan x="183.0" fill="#e6edf3" font-weight="700">Lost response</tspan><tspan x="417.6" fill="#c9d1d9">The client lost the reply and retried; the write</tspan></text>
+    <text y="262"><tspan x="417.6" fill="#c9d1d9">still happened exactly once.</tspan></text>
+    <text y="289"><tspan x="50.4" fill="#ffa657">✗</tspan><tspan x="70.8" fill="#ffa657" font-weight="700">VIOLATION</tspan><tspan x="183.0" fill="#e6edf3" font-weight="700">Concurrent duplicates</tspan><tspan x="417.6" fill="#c9d1d9">0 of 5 runs held. 16 identical requests arrived</tspan></text>
+    <text y="316"><tspan x="417.6" fill="#c9d1d9">together and the count went up by 16 instead of 1.</tspan></text>
+    <text y="343"><tspan x="417.6" fill="#8b949e">5 bursts of 16</tspan></text>
+    <text y="370"><tspan x="50.4" fill="#ffa657">✗</tspan><tspan x="70.8" fill="#ffa657" font-weight="700">VIOLATION</tspan><tspan x="183.0" fill="#e6edf3" font-weight="700">Key reuse</tspan><tspan x="417.6" fill="#c9d1d9">The changed request got HTTP 200, but nothing new</tspan></text>
+    <text y="397"><tspan x="417.6" fill="#c9d1d9">was written.</tspan></text>
+    <text y="424"><tspan x="417.6" fill="#8b949e">changed /quantity from 1 to 2</tspan></text>
+    <text y="451"><tspan x="50.4" fill="#8b949e">–</tspan><tspan x="70.8" fill="#8b949e" font-weight="700">SKIPPED</tspan><tspan x="183.0" fill="#e6edf3" font-weight="700">Crash after ack</tspan><tspan x="417.6" fill="#c9d1d9">Add a &quot;service&quot; block so RecoveryLab can start,</tspan></text>
+    <text y="478"><tspan x="417.6" fill="#c9d1d9">kill, and restart your process.</tspan></text>
+    <text y="532"><tspan x="40.2" fill="#ffa657" font-weight="700">VIOLATION</tspan><tspan x="142.2" fill="#e6edf3" font-weight="700">1 of 3 checks held.</tspan></text>
+    <text y="559"><tspan x="40.2" fill="#8b949e">1 skipped; see the reasons above.</tspan></text>
+    <text y="613"><tspan x="40.2" fill="#e6edf3" font-weight="700">Concurrent duplicates</tspan></text>
+    <text y="640"><tspan x="50.4" fill="#e6edf3" font-weight="700">What happened</tspan><tspan x="203.4" fill="#c9d1d9">16 identical requests arrived together and the count went up</tspan></text>
+    <text y="667"><tspan x="203.4" fill="#c9d1d9">by 16 instead of 1.</tspan></text>
+    <text y="694"><tspan x="50.4" fill="#e6edf3" font-weight="700">Likely cause</tspan><tspan x="203.4" fill="#c9d1d9">This is a check-then-write race. Several requests asked &quot;have</tspan></text>
+    <text y="721"><tspan x="203.4" fill="#c9d1d9">I seen this key?&quot; before any of them recorded it, so they all</tspan></text>
+    <text y="748"><tspan x="203.4" fill="#c9d1d9">went ahead.</tspan></text>
+    <text y="775"><tspan x="50.4" fill="#e6edf3" font-weight="700">How to fix</tspan><tspan x="203.4" fill="#c9d1d9">• Make claiming the key atomic: a unique index on the key plus</tspan></text>
+    <text y="802"><tspan x="223.8" fill="#c9d1d9">INSERT ... ON CONFLICT DO NOTHING, or a row lock, before</tspan></text>
+    <text y="829"><tspan x="223.8" fill="#c9d1d9">doing the work.</tspan></text>
+    <text y="856"><tspan x="203.4" fill="#c9d1d9">• Requests that lose the race should wait for the winner and</tspan></text>
+    <text y="883"><tspan x="223.8" fill="#c9d1d9">replay its result, or return 409 while it is still running.</tspan></text>
+  </g>
+</svg>

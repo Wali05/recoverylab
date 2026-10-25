@@ -277,6 +277,9 @@ func demo(args []string) int {
 		return 1
 	}
 	fmt.Println("Demo passed: 3 healthy cases held; 3 injected defects were detected.")
+	fmt.Println("\nTry it on your own API (start it first):")
+	fmt.Println("  recoverylab init --url http://127.0.0.1:8080/orders --state http://127.0.0.1:8080/orders --body '{\"sku\":\"book\"}'")
+	fmt.Println("  recoverylab audit recoverylab.json")
 	return 0
 }
 
