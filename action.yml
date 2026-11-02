@@ -1,5 +1,5 @@
-name: RecoveryLab
-description: Check that a local API keeps its data right when replies get lost, requests race, keys get reused, or the process crashes.
+name: RecoveryLab Retry Audit
+description: Find duplicate or lost writes in your API when replies vanish, requests race, keys get reused, or it crashes.
 author: Wali05
 branding:
   icon: shield
