@@ -36,18 +36,29 @@ The numbers are observed/expected state values. `VIOLATION 2/1` means two writes
 
 The built-in servers make those bugs easy to reproduce. A race in your own service may take several runs to catch.
 
-## Check your own API in two commands
+## Check your own API
 
-[Install RecoveryLab](#install) (or use `go run ./cmd/recoverylab` from a clone). Start your service locally, then point `init` at the write you care about and at something that shows its effect. That can be a count, or just the list endpoint:
+[Install RecoveryLab](#install) (or use `go run ./cmd/recoverylab` from a clone) and start your service locally.
+
+**If it has an OpenAPI document**, which FastAPI, Spring with springdoc, ASP.NET Core, and NestJS can all serve, two commands cover every write endpoint:
+
+```sh
+recoverylab discover --base http://127.0.0.1:8000
+recoverylab audit recoverylab/
+```
+
+`discover` finds the document at the usual paths (`/openapi.json`, `/v3/api-docs`, `/openapi/v1.json`, `/swagger/v1/swagger.json`, `/api-json`, and a few more), or you can pass `--openapi` with a URL or file. For each `POST` it builds a body from the schema (required fields, examples, enums, formats, and length limits) and pairs it with the `GET` on the same path to count the effect. It checks that list against the live service before writing anything. Endpoints it can't handle on its own are listed with the reason, such as a path parameter that needs `--param id=42`. String values include `{{run_id}}`, so a unique email or username doesn't collide on the next run. Look over the generated bodies before trusting the verdicts. It reads JSON documents only.
+
+**For a single endpoint**, point `init` at the write and at something that shows its effect. That can be a count, or just the list endpoint:
 
 ```sh
 recoverylab init --url http://127.0.0.1:8080/orders --state http://127.0.0.1:8080/orders --body '{"sku":"book","quantity":1}'
 recoverylab audit recoverylab.json
 ```
 
-`init` reads the state endpoint, finds the numbers and lists that could count the write, and saves a scenario using the most likely one. It adds an `Idempotency-Key` header with a fresh value per run; pass `--no-key` if your API identifies operations another way, and `--header 'Authorization: Bearer …'` for auth.
+`init` reads the state endpoint, finds the numbers and lists that could count the write, and saves a scenario using the most likely one. Both commands add an `Idempotency-Key` header with a fresh value per run; pass `--no-key` if your API identifies operations another way, and `--header 'Authorization: Bearer …'` for auth.
 
-`audit` then runs every failure that applies to that request:
+`audit` takes one scenario, several, or a folder, and runs every failure that applies to each request:
 
 - **Lost response:** the reply vanishes and the client retries.
 - **Concurrent duplicates:** five bursts of 16 identical requests (`--bursts` changes the count), because a race doesn't show up every time.
@@ -56,7 +67,11 @@ recoverylab audit recoverylab.json
 
 Every finding comes with an explanation written for the person who has to fix it. For a check-then-write race, that's the race itself, plus "make claiming the key atomic: a unique index on the key plus `INSERT ... ON CONFLICT DO NOTHING`". If RecoveryLab couldn't finish (nothing listening, a pointer that doesn't match, a first request that failed), it says so and suggests the next thing to try instead of handing you a stack trace.
 
-To keep or share the result, add `--html report.html` for a single-file report with the full timeline, `--junit report.xml` for your CI's test tab, or `--markdown summary.md` for a pull request comment. They work with `run` too.
+To keep or share the result, add `--html report.html` for a single-file report with the full timeline, `--junit report.xml` for your CI's test tab, `--markdown summary.md` for a pull request comment, or `--badge badge.svg` for your own README:
+
+![retry safety: 3/3 held](docs/assets/badge-pass.svg) ![retry safety: 1/6 held](docs/assets/badge-fail.svg)
+
+They all work with `run` too, and with several endpoints they combine into one report.
 
 ## Tested against real projects
 
@@ -104,7 +119,7 @@ RecoveryLab reads your state endpoint before and after the experiment. For each 
 
 ## Write a scenario by hand
 
-`init` writes this file for you, but every setting is plain JSON you can edit. Use a disposable local service with a write endpoint and a `GET` endpoint that exposes the effect as an integer. Keep other writers out of the test while it runs. Here is a scenario for a service listening on `127.0.0.1:8080`:
+`init` and `discover` write this file for you, but every setting is plain JSON you can edit. Add `"$schema": "https://raw.githubusercontent.com/Wali05/recoverylab/main/docs/scenario.schema.json"` at the top and editors such as VS Code will autocomplete settings and flag mistakes as you type. Use a disposable local service with a write endpoint and a `GET` endpoint that exposes the effect as an integer. Keep other writers out of the test while it runs. Here is a scenario for a service listening on `127.0.0.1:8080`:
 
 ```json
 {
@@ -237,7 +252,7 @@ The repo is also a GitHub Action. Start your API in the job however you normally
 ```yaml
 - uses: Wali05/recoverylab@main   # pin a commit SHA for repeatable builds
   with:
-    scenario: recoverylab.json    # from recoverylab init
+    scenario: recoverylab/        # from recoverylab discover, or one .json file
 - uses: actions/upload-artifact@v4
   if: always()
   with:
@@ -245,7 +260,7 @@ The repo is also a GitHub Action. Start your API in the job however you normally
     path: recoverylab-report.html
 ```
 
-The job fails on a violation, the job page gets a summary table with the explanations, and the uploaded HTML report has the full timeline. Inputs: `command` (`audit` or `run`), `bursts`, `repeat`, `html`, `junit`, and `summary`. The `status` output is `PASS`, `VIOLATION`, or `ERROR`. RecoveryLab's own CI [runs the action](.github/workflows/ci.yml) against the built-in fixture on every push.
+The job fails on a violation, the job page gets a summary table with the explanations, and the uploaded HTML report has the full timeline. Inputs: `command` (`audit` or `run`), `bursts`, `repeat`, `html`, `junit`, `badge`, and `summary`. The `status` output is `PASS`, `VIOLATION`, or `ERROR`. RecoveryLab's own CI [runs the action](.github/workflows/ci.yml) against the built-in fixture on every push, and runs `discover` against the fixture's OpenAPI document.
 
 Outside GitHub, install the binary and run `recoverylab audit --junit report.xml scenario.json`; exit codes are listed below.
 
@@ -256,6 +271,6 @@ go test ./...
 go vet ./...
 ```
 
-The project uses only Go's standard library. Code lives in `internal/`: `engine` injects the faults, `audit` plans and runs a full audit, `explain` turns a report into plain language, and `report` writes HTML, JUnit, and Markdown. Tagged builds produce Windows, Linux, and macOS binaries for GitHub Releases; see the [release workflow](.github/workflows/release.yml).
+The project uses only Go's standard library. Code lives in `internal/`: `engine` injects the faults, `audit` plans and runs a full audit, `explain` turns a report into plain language, `openapi` reads OpenAPI documents for `discover`, and `report` writes HTML, JUnit, Markdown, and badges. Changes are listed in the [changelog](CHANGELOG.md). Tagged builds produce Windows, Linux, and macOS binaries for GitHub Releases; see the [release workflow](.github/workflows/release.yml).
 
 MIT licensed. See [LICENSE](LICENSE).

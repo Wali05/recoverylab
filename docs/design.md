@@ -61,6 +61,16 @@ Key reuse needs a changed body. When the file has no `changed_body`, the audit c
 
 Skipped steps don't fail the audit; the report lists each one with its reason. The audit exits like `run`: 1 if any step found a violation, otherwise 2 if any step couldn't finish.
 
+## Discover
+
+`discover` reads an OpenAPI 3.x or Swagger 2.0 JSON document. Without `--openapi`, it tries the default paths of FastAPI, springdoc, ASP.NET Core, NestJS, and Fastify on `--base`, and uses the first reply that parses as a document.
+
+Only `POST` operations become scenarios automatically, and only when the same path also has a `GET`: adding a resource should make that list longer, or its total larger. `PUT` and `PATCH` usually change an existing resource without changing any count, and `DELETE` needs a resource to exist first, so those are listed as skipped with the reason. A path parameter needs `--param name=value`.
+
+The request body is built from the operation's JSON schema. Declared `example`, `default`, and `enum` values win. After that come the type, format, minimum, and length limits. Only required properties are filled when the schema lists any, and `readOnly` properties are left out. `$ref`, `allOf`, `oneOf`, and `anyOf` are followed. Strings include `{{run_id}}` where their length limits allow, because a fixed email or username would hit a unique constraint on the second run.
+
+To choose what to count, `discover` reads the `GET` response's schema for a `total`, `totalElements`, or `count` field, then for an array such as `items`, `data`, `results`, or `content`. It then fetches the list once and keeps that choice only if the live reply has it. Otherwise it falls back to the same ranking `init` uses. If the list can't be fetched, the schema's guess is used and the output says so.
+
 ## Explanations
 
 The plain-language explanation is computed from the report alone: which checks missed, in which direction, and which response check failed. It never sees your code, so "likely cause" really means likely. A count that didn't move at all after a 2xx is explained separately from a duplicate, because it usually points at an asynchronous write or a state endpoint that measures something else.

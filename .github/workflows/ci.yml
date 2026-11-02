@@ -40,3 +40,19 @@ jobs:
         with:
           name: recoverylab-report
           path: recoverylab-report.html
+  # The path a new user takes: read an OpenAPI document, then audit every
+  # endpoint it describes.
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.1'
+      - run: go build -o recoverylab ./cmd/recoverylab
+      - name: Discover and audit the fixture
+        run: |
+          ./recoverylab fixture --listen 127.0.0.1:18080 --journal "$RUNNER_TEMP/journal.jsonl" &
+          for i in $(seq 50); do curl -fs http://127.0.0.1:18080/health && break; sleep 0.1; done
+          ./recoverylab discover --base http://127.0.0.1:18080 --out "$RUNNER_TEMP/scenarios"
+          ./recoverylab audit --bursts 3 --badge "$RUNNER_TEMP/badge.svg" --markdown "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP/scenarios"
