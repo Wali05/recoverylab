@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Wali05/recoverylab/main/docs/scenario.schema.json",
+  "title": "RecoveryLab scenario",
+  "description": "One request, the state that shows its effect, and the failure to inject. See https://github.com/Wali05/recoverylab#write-a-scenario-by-hand",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": { "type": "string", "description": "Shown in reports. Defaults to the file name." },
+    "scenario": {
+      "description": "Which failure `run` injects. `audit` ignores this and runs every scenario that applies.",
+      "enum": ["lost-response", "concurrent-duplicates", "crash-after-ack", "key-reuse"]
+    },
+    "timeout": { "$ref": "#/$defs/duration", "description": "Deadline for the whole experiment. Default 20s." },
+    "concurrency": { "type": "integer", "minimum": 2, "maximum": 64, "description": "Copies sent at once by concurrent-duplicates. Default 16." },
+    "service": {
+      "type": "object",
+      "description": "A foreground process RecoveryLab starts, and kills for crash-after-ack.",
+      "additionalProperties": false,
+      "required": ["command", "ready_url"],
+      "properties": {
+        "command": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "The server executable and its arguments, with no shell wrapper." },
+        "working_dir": { "type": "string", "description": "Relative to the scenario file. Default: the scenario file's folder." },
+        "ready_url": { "$ref": "#/$defs/localURL", "description": "Returns 2xx once the service is ready." },
+        "startup_timeout": { "$ref": "#/$defs/duration", "description": "Default 10s." }
+      }
+    },
+    "request": {
+      "type": "object",
+      "description": "The write being tested. {{run_id}} is replaced with a fresh value per run.",
+      "additionalProperties": false,
+      "required": ["method", "url"],
+      "properties": {
+        "method": { "enum": ["POST", "PUT", "PATCH", "DELETE", "post", "put", "patch", "delete"] },
+        "url": { "$ref": "#/$defs/localURL" },
+        "headers": { "$ref": "#/$defs/headers" },
+        "body": { "description": "Any JSON value, sent as the request body." }
+      }
+    },
+    "changed_body": { "description": "key-reuse only: the body sent with the reused key. Must differ from request.body by value." },
+    "expected_reuse_status": { "type": "integer", "minimum": 400, "maximum": 499, "description": "key-reuse only. Default 422." },
+    "observe": { "$ref": "#/$defs/observation" },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "description": "Several named state checks. Use instead of observe.",
+      "items": { "allOf": [{ "$ref": "#/$defs/observation" }, { "required": ["name"] }] }
+    },
+    "retry_response": {
+      "type": "object",
+      "description": "lost-response and crash-after-ack: what the retry must return. Without it, a lost-response retry must be 2xx.",
+      "additionalProperties": false,
+      "properties": {
+        "allowed_statuses": { "$ref": "#/$defs/statuses" },
+        "same_json_pointers": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "$ref": "#/$defs/pointer" }, "description": "Values that must match between the original reply and the retry, such as /order_id." }
+      }
+    },
+    "concurrent_response": {
+      "type": "object",
+      "description": "concurrent-duplicates: HTTP codes the burst may return, such as [201, 409].",
+      "additionalProperties": false,
+      "required": ["allowed_statuses"],
+      "properties": { "allowed_statuses": { "$ref": "#/$defs/statuses", "minItems": 1 } }
+    }
+  },
+  "oneOf": [
+    { "required": ["observe"], "not": { "required": ["checks"] } },
+    { "required": ["checks"], "not": { "required": ["observe"] } }
+  ],
+  "$defs": {
+    "localURL": { "type": "string", "pattern": "^https?://(localhost|127(\\.[0-9]{1,3}){3}|\\[::1\\])(:[0-9]+)?(/.*)?$", "description": "Loopback only." },
+    "duration": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$", "examples": ["20s", "500ms"] },
+    "pointer": { "type": "string", "pattern": "^(/([^~]|~[01])*)*$", "description": "RFC 6901 JSON pointer, such as /count. Empty means the whole document." },
+    "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+    "statuses": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "type": "integer", "minimum": 200, "maximum": 599 } },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "pointer", "expected_delta"],
+      "properties": {
+        "name": { "type": "string" },
+        "url": { "$ref": "#/$defs/localURL", "description": "A GET endpoint whose response shows the effect." },
+        "headers": { "$ref": "#/$defs/headers" },
+        "pointer": { "$ref": "#/$defs/pointer" },
+        "measure": { "enum": ["value", "length"], "description": "value reads an integer; length counts the items in an array." },
+        "expected_delta": { "type": "integer", "description": "How much one successful write should change the value, such as 1, or -1 for a delete." }
+      }
+    }
+  }
+}

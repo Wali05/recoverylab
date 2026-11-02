@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/Wali05/recoverylab/main/docs/scenario.schema.json",
   "name": "changed-payload-must-not-create-another-operation",
   "scenario": "key-reuse",
   "request": {

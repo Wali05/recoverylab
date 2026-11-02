@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/Wali05/recoverylab/main/docs/scenario.schema.json",
   "name": "fixture-concurrent-operation-once",
   "scenario": "concurrent-duplicates",
   "concurrency": 16,

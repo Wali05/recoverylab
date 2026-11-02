@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/Wali05/recoverylab/main/docs/scenario.schema.json",
   "name": "crash-retry-keeps-one-operation",
   "scenario": "crash-after-ack",
   "timeout": "20s",

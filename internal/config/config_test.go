@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -210,5 +211,55 @@ func TestKeyReuseValidationAndRunID(t *testing.T) {
 	c.Request.Headers = nil
 	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "Idempotency-Key") {
 		t.Fatalf("missing key should fail validation: %v", err)
+	}
+}
+
+// The published schema must know every setting the loader accepts, or
+// editors would flag valid files.
+func TestSchemaCoversEveryField(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "scenario.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	props := func(node map[string]any) map[string]any { return node["properties"].(map[string]any) }
+	defs := schema["$defs"].(map[string]any)
+	top := props(schema)
+	for _, item := range []struct {
+		where string
+		value any
+		known map[string]any
+	}{
+		{"scenario", Config{}, top},
+		{"request", Request{}, props(top["request"].(map[string]any))},
+		{"service", Service{}, props(top["service"].(map[string]any))},
+		{"observe", Observation{}, props(defs["observation"].(map[string]any))},
+		{"retry_response", RetryResponse{}, props(top["retry_response"].(map[string]any))},
+		{"concurrent_response", ConcurrentResponse{}, props(top["concurrent_response"].(map[string]any))},
+	} {
+		typ := reflect.TypeOf(item.value)
+		for i := 0; i < typ.NumField(); i++ {
+			name := strings.Split(typ.Field(i).Tag.Get("json"), ",")[0]
+			if name == "" || name == "-" {
+				continue
+			}
+			if _, ok := item.known[name]; !ok {
+				t.Errorf("schema is missing %s.%s", item.where, name)
+			}
+		}
+	}
+}
+
+func TestLoadAcceptsSchemaKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "schema.json")
+	data := `{"$schema":"` + SchemaURL + `","scenario":"lost-response","request":{"method":"POST","url":"http://127.0.0.1:8080/write"},"observe":{"url":"http://127.0.0.1:8080/state","pointer":"/count","expected_delta":1}}`
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err != nil {
+		t.Fatal(err)
 	}
 }

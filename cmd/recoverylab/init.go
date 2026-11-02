@@ -82,6 +82,7 @@ func initScenario(args []string) int {
 		delta = -1
 	}
 	c := config.Config{
+		Schema:   config.SchemaURL,
 		Name:     scenarioName(*method, *target),
 		Scenario: "lost-response",
 		Request:  config.Request{Method: strings.ToUpper(*method), URL: *target, Headers: map[string]string{}},

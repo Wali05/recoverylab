@@ -19,8 +19,12 @@ import (
 	"github.com/Wali05/recoverylab/internal/strictjson"
 )
 
+// SchemaURL lets editors autocomplete and check scenario files.
+const SchemaURL = "https://raw.githubusercontent.com/Wali05/recoverylab/main/docs/scenario.schema.json"
+
 // Config describes one reproducible failure experiment.
 type Config struct {
+	Schema              string              `json:"$schema,omitempty"`
 	Name                string              `json:"name"`
 	Scenario            string              `json:"scenario"`
 	Timeout             string              `json:"timeout,omitempty"`
