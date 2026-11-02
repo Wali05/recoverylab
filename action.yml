@@ -7,7 +7,7 @@ branding:
 
 inputs:
   scenario:
-    description: Path to the scenario JSON file.
+    description: Path to a scenario JSON file, or a folder of them for audit.
     required: true
   command:
     description: "audit (every scenario that applies) or run (just the one in the file)."
@@ -24,6 +24,9 @@ inputs:
   junit:
     description: Where to write the JUnit XML report.
     default: recoverylab-junit.xml
+  badge:
+    description: Where to write an SVG badge, such as recoverylab-badge.svg. Empty skips it.
+    default: ""
   summary:
     description: Add a summary table to the job page.
     default: "true"
@@ -55,11 +58,13 @@ runs:
         INPUT_HTML: ${{ inputs.html }}
         INPUT_JUNIT: ${{ inputs.junit }}
         INPUT_SUMMARY: ${{ inputs.summary }}
+        INPUT_BADGE: ${{ inputs.badge }}
       run: |
         set +e
         export PATH="$RUNNER_TEMP/recoverylab-bin:$PATH"
         args=(--html "$INPUT_HTML" --junit "$INPUT_JUNIT")
         if [[ "$INPUT_SUMMARY" == true ]]; then args+=(--markdown "$GITHUB_STEP_SUMMARY"); fi
+        if [[ -n "$INPUT_BADGE" ]]; then args+=(--badge "$INPUT_BADGE"); fi
         case "$INPUT_COMMAND" in
           audit) args+=(--bursts "$INPUT_BURSTS") ;;
           run) args+=(--repeat "$INPUT_REPEAT") ;;

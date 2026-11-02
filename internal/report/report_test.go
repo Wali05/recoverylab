@@ -113,3 +113,17 @@ func TestSeveralEndpoints(t *testing.T) {
 		t.Fatalf("junit: %+v", parsed)
 	}
 }
+
+func TestBadge(t *testing.T) {
+	var out strings.Builder
+	if err := Badge(&out, []audit.Report{sample()}); err != nil {
+		t.Fatal(err)
+	}
+	svg := out.String()
+	if !strings.Contains(svg, `aria-label="retry safety: 0/1 held"`) || !strings.Contains(svg, "#d73a49") {
+		t.Fatalf("badge:\n%s", svg)
+	}
+	if err := xml.Unmarshal([]byte(svg), new(struct{})); err != nil {
+		t.Fatalf("badge is not valid XML: %v", err)
+	}
+}

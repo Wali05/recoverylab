@@ -24,6 +24,7 @@ func runAudit(args []string) int {
 	junit := fs.String("junit", "", "write a JUnit XML report for CI")
 	html := fs.String("html", "", "write a self-contained HTML report")
 	markdown := fs.String("markdown", "", "write a Markdown summary, such as $GITHUB_STEP_SUMMARY")
+	badge := fs.String("badge", "", "write an SVG badge for a README")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -106,7 +107,7 @@ func runAudit(args []string) int {
 			return 2
 		}
 	}
-	if err := writeReports(outcomes, *junit, *html, *markdown); err != nil {
+	if err := writeReports(outcomes, reportPaths{*junit, *html, *markdown, *badge}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
@@ -160,8 +161,11 @@ func printSuiteSummary(w io.Writer, s style, suite audit.Suite) {
 	fmt.Fprintln(w)
 }
 
-// writeReports saves the optional JUnit and HTML versions of a result.
-func writeReports(r []audit.Report, junitPath, htmlPath, markdownPath string) error {
+// writeReports saves the optional JUnit, HTML, badge, and Markdown versions
+// of a result.
+type reportPaths struct{ junit, html, markdown, badge string }
+
+func writeReports(r []audit.Report, paths reportPaths) error {
 	write := func(path, kind string, render func(io.Writer) error) error {
 		if path == "" {
 			return nil
@@ -181,13 +185,16 @@ func writeReports(r []audit.Report, junitPath, htmlPath, markdownPath string) er
 		}
 		return f.Close()
 	}
-	if err := write(junitPath, "JUnit", func(w io.Writer) error { return report.JUnit(w, r) }); err != nil {
+	if err := write(paths.junit, "JUnit", func(w io.Writer) error { return report.JUnit(w, r) }); err != nil {
 		return err
 	}
-	if err := write(htmlPath, "HTML", func(w io.Writer) error { return report.HTML(w, r, currentVersion()) }); err != nil {
+	if err := write(paths.html, "HTML", func(w io.Writer) error { return report.HTML(w, r, currentVersion()) }); err != nil {
 		return err
 	}
-	return write(markdownPath, "Markdown", func(w io.Writer) error { return report.Markdown(w, r) })
+	if err := write(paths.badge, "badge", func(w io.Writer) error { return report.Badge(w, r) }); err != nil {
+		return err
+	}
+	return write(paths.markdown, "Markdown", func(w io.Writer) error { return report.Markdown(w, r) })
 }
 
 func printAuditHeader(w io.Writer, s style, c config.Config) {
