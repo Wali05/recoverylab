@@ -141,8 +141,9 @@ func hasKey(headers map[string]string) bool {
 
 // ChangeBody makes the smallest real change to a JSON body so the audit can
 // reuse its key for a different request: the first number goes up by one, or
-// failing that the first string gets a suffix, or the first boolean flips.
-// Strings carrying {{run_id}} are left alone because they often hold the key.
+// failing that the first string changes, or the first boolean flips. Strings
+// carrying {{run_id}} are changed only as a last resort, because they may be
+// how the service identifies the operation.
 func ChangeBody(body json.RawMessage) (json.RawMessage, string, error) {
 	if len(body) == 0 {
 		return nil, "", fmt.Errorf("the request has no JSON body to change; add changed_body to test key reuse")
@@ -153,7 +154,7 @@ func ChangeBody(body json.RawMessage) (json.RawMessage, string, error) {
 	if err := dec.Decode(&root); err != nil {
 		return nil, "", err
 	}
-	for _, kind := range []string{"number", "string", "bool"} {
+	for _, kind := range []string{"number", "string", "bool", "run-string"} {
 		if pointer, note, ok := mutate(&root, "", kind); ok {
 			changed, err := json.Marshal(root)
 			if err != nil {
@@ -207,10 +208,17 @@ func mutate(node *any, pointer, kind string) (string, string, bool) {
 		}
 		return pointer, fmt.Sprintf("from %s to %s", v, *node), true
 	case string:
-		if kind != "string" || strings.Contains(v, "{{run_id}}") {
+		templated := strings.Contains(v, "{{run_id}}")
+		if (kind == "string" && templated) || (kind == "run-string" && !templated) || (kind != "string" && kind != "run-string") {
 			return "", "", false
 		}
-		*node = v + "-changed"
+		// Prefix anything that looks like an email: a suffix would make it
+		// invalid, and a validation 422 would pass for a key-reuse rejection.
+		if strings.Contains(v, "@") {
+			*node = "changed-" + v
+		} else {
+			*node = v + "-changed"
+		}
 		return pointer, fmt.Sprintf("from %q to %q", v, *node), true
 	case bool:
 		if kind != "bool" {

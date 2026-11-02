@@ -95,6 +95,10 @@ func initScenario(args []string) int {
 	for k, v := range headers {
 		c.Request.Headers[k] = v
 	}
+	if len(headers) > 0 {
+		// Auth that the write needs, the state endpoint usually needs too.
+		c.Observe.Headers = map[string]string(headers)
+	}
 	if !*noKey && !hasHeader(c.Request.Headers, "Idempotency-Key") {
 		c.Request.Headers["Idempotency-Key"] = "recoverylab-{{run_id}}"
 	}
@@ -104,7 +108,7 @@ func initScenario(args []string) int {
 	}
 
 	s := newStyle(os.Stdout)
-	root, err := fetchJSON(*state)
+	root, err := fetchJSON(*state, headers)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "couldn't read %s: %v\n", *state, err)
 		fmt.Fprintln(os.Stderr, "Start your service first; init looks at the state endpoint to find a counter.")
@@ -193,12 +197,18 @@ func hasHeader(h map[string]string, name string) bool {
 	return false
 }
 
-func fetchJSON(url string) (any, error) {
+// fetch GETs a local URL directly, without proxies or redirects, and
+// refuses bodies over limit bytes.
+func fetch(url string, headers map[string]string, limit int64) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
@@ -211,12 +221,20 @@ func fetchJSON(url string) (any, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > 1<<20 {
-		return nil, errors.New("response is larger than 1 MiB")
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("response is larger than %d MiB", limit>>20)
+	}
+	return data, nil
+}
+
+func fetchJSON(url string, headers map[string]string) (any, error) {
+	data, err := fetch(url, headers, 1<<20)
+	if err != nil {
+		return nil, err
 	}
 	if err := strictjson.RejectDuplicateKeys(data); err != nil {
 		return nil, fmt.Errorf("not usable JSON: %w", err)

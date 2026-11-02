@@ -25,6 +25,7 @@ type store struct {
 	journal string
 	keys    map[string]string
 	count   int64
+	order   []string
 }
 
 func openStore(path string) (*store, error) {
@@ -45,6 +46,7 @@ func openStore(path string) (*store, error) {
 		}
 		s.count++
 		s.keys[e.Key] = e.Fingerprint
+		s.order = append(s.order, e.Key)
 	}
 	return s, scanner.Err()
 }
@@ -85,6 +87,7 @@ func (s *store) addWithFingerprint(key, fingerprint string, deduplicate bool) (b
 	}
 	s.count++
 	s.keys[key] = fingerprint
+	s.order = append(s.order, key)
 	return true, "", nil
 }
 
@@ -92,6 +95,18 @@ func (s *store) value() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.count
+}
+
+// list returns one item per journal entry, so a duplicate write shows up as
+// a longer list, just like a real collection endpoint.
+func (s *store) list() []map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := make([]map[string]string, len(s.order))
+	for i, key := range s.order {
+		items[i] = map[string]string{"operation_id": key}
+	}
+	return items
 }
 
 func (s *store) has(key string) bool {
@@ -130,7 +145,16 @@ func New(mode, journal string) (http.Handler, error) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]int64{"count": s.value()})
 	})
+	mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(openAPI))
+	})
 	mux.HandleFunc("/operations", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(s.list())
+			return
+		}
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -243,3 +267,33 @@ func New(mode, journal string) (http.Handler, error) {
 	})
 	return mux, nil
 }
+
+// openAPI describes the fixture the way FastAPI or springdoc would describe a
+// real service, so "recoverylab discover" has something to read in the demo.
+const openAPI = `{
+  "openapi": "3.0.3",
+  "info": { "title": "RecoveryLab fixture", "version": "1" },
+  "paths": {
+    "/operations": {
+      "get": {
+        "summary": "List operations",
+        "responses": { "200": { "description": "Every recorded operation", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Operation" } } } } } }
+      },
+      "post": {
+        "summary": "Record an operation",
+        "parameters": [ { "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string" } } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NewOperation" } } } },
+        "responses": { "201": { "description": "Recorded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Operation" } } } } }
+      }
+    },
+    "/state": {
+      "get": { "responses": { "200": { "description": "Count", "content": { "application/json": { "schema": { "type": "object", "properties": { "count": { "type": "integer" } } } } } } } }
+    }
+  },
+  "components": {
+    "schemas": {
+      "NewOperation": { "type": "object", "required": ["amount"], "properties": { "amount": { "type": "integer", "minimum": 1 }, "note": { "type": "string" } } },
+      "Operation": { "type": "object", "properties": { "operation_id": { "type": "string" } } }
+    }
+  }
+}`

@@ -40,6 +40,8 @@ func run(args []string) int {
 		return runFile(args[1:])
 	case "init":
 		return initScenario(args[1:])
+	case "discover":
+		return discover(args[1:])
 	case "audit":
 		return runAudit(args[1:])
 	case "validate":
@@ -70,6 +72,7 @@ func usage() {
 
 Usage:
   recoverylab demo
+  recoverylab discover --base http://127.0.0.1:8000 [--openapi URL|FILE] [--out DIR]
   recoverylab init --url WRITE_URL --state STATE_URL [--body JSON] [--out FILE]
   recoverylab audit [--bursts N] [--format text|json] [--output AUDIT.json] SCENARIO.json
   recoverylab validate SCENARIO.json
@@ -85,6 +88,7 @@ Scenarios:
   crash-after-ack  Kill and restart a managed service; optionally retry afterward.
   key-reuse        Change the body, reuse its key, and check rejection and state.
 
+"discover" reads your OpenAPI document and writes a scenario per write endpoint.
 "init" looks at your state endpoint and writes a scenario you can run straight away.
 "audit" runs every scenario that applies to one request and prints a report card.
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/Wali05/recoverylab/internal/config"
 	"github.com/Wali05/recoverylab/internal/engine"
+	"github.com/Wali05/recoverylab/internal/fixture"
 )
 
 func TestFixtureRejectsNonLoopbackListen(t *testing.T) {
@@ -84,5 +86,35 @@ func TestInitWritesARunnableScenario(t *testing.T) {
 	}
 	if code := run([]string{"init", "--url", server.URL + "/orders", "--state", server.URL + "/orders", "--out", out}); code != 2 {
 		t.Fatal("init overwrote an existing file without --force")
+	}
+}
+
+func TestDiscoverWritesScenariosFromOpenAPI(t *testing.T) {
+	handler, err := fixture.New("correct", filepath.Join(t.TempDir(), "journal.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	out := filepath.Join(t.TempDir(), "scenarios")
+	if code := run([]string{"discover", "--base", server.URL, "--out", out}); code != 0 {
+		t.Fatalf("discover exited %d", code)
+	}
+	c, err := config.Load(filepath.Join(out, "post-operations.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	if err := json.Compact(&body, c.Request.Body); err != nil {
+		t.Fatal(err)
+	}
+	if c.Request.URL != server.URL+"/operations" || c.Observe.Measure != config.MeasureLength || body.String() != `{"amount":1}` || c.Schema != config.SchemaURL {
+		t.Fatalf("unexpected scenario: %+v", c)
+	}
+	if code := run([]string{"discover", "--base", server.URL, "--out", out}); code != 2 {
+		t.Fatal("discover replaced an existing scenario without --force")
+	}
+	if code := run([]string{"discover", "--base", server.URL + "/nothing-here"}); code != 2 {
+		t.Fatal("discover should fail when no document is found")
 	}
 }

@@ -65,13 +65,15 @@ func TestChangeBodyMakesARealChange(t *testing.T) {
 		{`{"id":"{{run_id}}","sku":"book"}`, `{"id":"{{run_id}}","sku":"book-changed"}`, `/sku from "book" to "book-changed"`},
 		{`{"items":[{"gift":false}]}`, `{"items":[{"gift":true}]}`, "/items/0/gift from false to true"},
 		{`{"a/b":{"n":0}}`, `{"a/b":{"n":1}}`, "/a~1b/n from 0 to 1"},
+		{`{"id":"{{run_id}}","flag":false}`, `{"flag":true,"id":"{{run_id}}"}`, "/flag from false to true"},
+		{`{"email":"a+{{run_id}}@example.com"}`, `{"email":"changed-a+{{run_id}}@example.com"}`, `/email from "a+{{run_id}}@example.com" to "changed-a+{{run_id}}@example.com"`},
 	} {
 		changed, note, err := ChangeBody(json.RawMessage(test.body))
 		if err != nil || string(changed) != test.want || !strings.HasSuffix(note, test.note) {
 			t.Errorf("%s: got %s, %q, %v", test.body, changed, note, err)
 		}
 	}
-	for _, body := range []string{"", `{}`, `{"id":"{{run_id}}"}`, `null`} {
+	for _, body := range []string{"", `{}`, `[]`, `null`} {
 		if _, _, err := ChangeBody(json.RawMessage(body)); err == nil {
 			t.Errorf("%q: expected an error asking for changed_body", body)
 		}
