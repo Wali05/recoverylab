@@ -46,6 +46,12 @@ func discover(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: recoverylab discover --base http://127.0.0.1:8000 [--openapi URL|FILE] [--out DIR] [--header 'K: V'] [--param id=42]")
 		return 2
 	}
+	if *base != "" {
+		if err := config.LocalURL(*base); err != nil {
+			fmt.Fprintln(os.Stderr, "--base:", err)
+			return 2
+		}
+	}
 	s := newStyle(os.Stdout)
 
 	data, source, err := loadSpec(*base, *spec, headers)

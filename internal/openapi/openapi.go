@@ -108,7 +108,11 @@ func (d *Document) endpoint(path, method string, item, op map[string]any, params
 		case in == "header" && strings.EqualFold(name, "Idempotency-Key"):
 			// The caller adds a fresh key per run.
 		case in == "header" && required && !strings.EqualFold(name, "Authorization"):
-			e.Headers[name] = fmt.Sprint(d.example(d.paramSchema(p), 0))
+			value := d.example(d.paramSchema(p), 0)
+			if value == nil {
+				value = "recoverylab"
+			}
+			e.Headers[name] = fmt.Sprint(value)
 		case in == "body" && d.swagger:
 			e.Body = d.encode(d.example(p["schema"], 0))
 		}

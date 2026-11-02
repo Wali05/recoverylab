@@ -402,6 +402,10 @@ func ValidJSONPointer(pointer string) bool {
 	return true
 }
 
+// LocalURL reports whether raw is an HTTP URL on this machine, the only
+// kind of target RecoveryLab talks to.
+func LocalURL(raw string) error { return localHTTPURL(raw) }
+
 func localHTTPURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u == nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {

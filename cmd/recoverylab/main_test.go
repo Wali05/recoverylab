@@ -116,6 +116,9 @@ func TestDiscoverWritesScenariosFromOpenAPI(t *testing.T) {
 	if code := run([]string{"discover", "--base", server.URL, "--out", out}); code != 2 {
 		t.Fatal("discover replaced an existing scenario without --force")
 	}
+	if code := run([]string{"discover", "--base", "http://example.com"}); code != 2 {
+		t.Fatal("discover must not probe a remote host")
+	}
 	if code := run([]string{"discover", "--base", server.URL + "/nothing-here"}); code != 2 {
 		t.Fatal("discover should fail when no document is found")
 	}
