@@ -24,24 +24,30 @@ var tmpl = template.Must(template.New("report").Funcs(template.FuncMap{
 		return map[string]string{"PASS": "✓", "VIOLATION": "✗", "ERROR": "!", "SKIPPED": "–"}[s]
 	},
 	"pick":  pick,
+	"ran":   func(r audit.Report) int { return r.Held + r.Violations + r.Errors },
 	"tally": tally,
 }).Parse(page))
 
 type htmlPage struct {
-	audit.Report
+	Audits    []audit.Report
+	Suite     audit.Suite
+	Single    bool
+	Title     string
 	Version   string
 	Generated string
-	Ran       int
 }
 
 // HTML writes a self-contained page: no scripts, fonts, or network requests,
 // so it can be attached to a CI run or a pull request and opened anywhere.
-func HTML(w io.Writer, r audit.Report, version string) error {
+// Several audits get a summary with links to each endpoint.
+func HTML(w io.Writer, audits []audit.Report, version string) error {
 	return tmpl.Execute(w, htmlPage{
-		Report:    r,
+		Audits:    audits,
+		Suite:     audit.Combine(audits),
+		Single:    len(audits) == 1,
+		Title:     suiteName(audits),
 		Version:   version,
 		Generated: time.Now().UTC().Format("2 Jan 2006 15:04 UTC"),
-		Ran:       r.Held + r.Violations + r.Errors,
 	})
 }
 

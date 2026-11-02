@@ -29,7 +29,7 @@ func sample() audit.Report {
 
 func TestJUnitCountsAndExplains(t *testing.T) {
 	var out strings.Builder
-	if err := JUnit(&out, sample()); err != nil {
+	if err := JUnit(&out, []audit.Report{sample()}); err != nil {
 		t.Fatal(err)
 	}
 	var parsed junitSuites
@@ -47,7 +47,7 @@ func TestJUnitCountsAndExplains(t *testing.T) {
 
 func TestHTMLIsSelfContainedAndEscaped(t *testing.T) {
 	var out strings.Builder
-	if err := HTML(&out, sample(), "1.2.3"); err != nil {
+	if err := HTML(&out, []audit.Report{sample()}, "1.2.3"); err != nil {
 		t.Fatal(err)
 	}
 	page := out.String()
@@ -65,7 +65,7 @@ func TestHTMLIsSelfContainedAndEscaped(t *testing.T) {
 
 func TestMarkdownSummary(t *testing.T) {
 	var out strings.Builder
-	if err := Markdown(&out, sample()); err != nil {
+	if err := Markdown(&out, []audit.Report{sample()}); err != nil {
 		t.Fatal(err)
 	}
 	md := out.String()
@@ -73,5 +73,43 @@ func TestMarkdownSummary(t *testing.T) {
 		if !strings.Contains(md, want) {
 			t.Errorf("markdown is missing %q:\n%s", want, md)
 		}
+	}
+}
+
+func TestSeveralEndpoints(t *testing.T) {
+	second := sample()
+	second.Name, second.URL, second.Status, second.Violations, second.Held = "customers", "http://127.0.0.1:8080/customers", "PASS", 0, 1
+	second.Results = second.Results[:1]
+	second.Results[0].Status = "PASS"
+	audits := []audit.Report{sample(), second}
+
+	var page strings.Builder
+	if err := HTML(&page, audits, "1.2.3"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"2 endpoints", "1 of 2 checks held", `href="#endpoint-1"`, `id="endpoint-1"`, "http://127.0.0.1:8080/customers"} {
+		if !strings.Contains(page.String(), want) {
+			t.Errorf("page is missing %q", want)
+		}
+	}
+
+	var md strings.Builder
+	if err := Markdown(&md, audits); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(md.String(), "### ❌ RecoveryLab: 2 endpoints · 1 of 2 checks held") || !strings.Contains(md.String(), "#### ✅ customers") {
+		t.Errorf("markdown:\n%s", md.String())
+	}
+
+	var xmlOut strings.Builder
+	if err := JUnit(&xmlOut, audits); err != nil {
+		t.Fatal(err)
+	}
+	var parsed junitSuites
+	if err := xml.Unmarshal([]byte(xmlOut.String()), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Name != "RecoveryLab: 2 endpoints" || len(parsed.Suites) != 3 || parsed.Suites[2].Name != "customers: Lost response" {
+		t.Fatalf("junit: %+v", parsed)
 	}
 }

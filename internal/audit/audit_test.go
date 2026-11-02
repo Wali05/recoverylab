@@ -115,3 +115,13 @@ func TestAuditAgainstFixtures(t *testing.T) {
 		})
 	}
 }
+
+func TestCombineKeepsTheWorstStatus(t *testing.T) {
+	s := Combine([]Report{{Status: "PASS", Held: 3, Skipped: 1}, {Status: "ERROR", Held: 2, Errors: 1}, {Status: "VIOLATION", Held: 1, Violations: 2}})
+	if s.Status != "VIOLATION" || s.Endpoints != 3 || s.Held != 6 || s.Ran() != 9 || s.Skipped != 1 {
+		t.Fatalf("unexpected suite: %+v", s)
+	}
+	if s := Combine([]Report{{Status: "PASS"}, {Status: "ERROR", Errors: 1}}); s.Status != "ERROR" {
+		t.Fatalf("errors without violations: %+v", s)
+	}
+}

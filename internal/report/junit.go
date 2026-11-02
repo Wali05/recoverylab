@@ -46,46 +46,24 @@ type junitProblem struct {
 	Text    string `xml:",chardata"`
 }
 
-// JUnit writes one test case per run, grouped into one suite per scenario.
-// Each failure carries the plain-language explanation, which is what shows
-// up in a CI test tab.
-func JUnit(w io.Writer, r audit.Report) error {
-	out := junitSuites{Name: "RecoveryLab: " + r.Name}
-	for _, result := range r.Results {
-		suite := junitSuite{Name: result.Title, Time: "0"}
-		if result.Status == "SKIPPED" {
-			suite.Cases = []junitCase{{Name: result.Title, Classname: r.Name, Time: "0", Skipped: &junitProblem{Message: result.Reason}}}
-			suite.Tests, suite.Skipped = 1, 1
-		}
-		var total int64
-		for i, run := range result.Reports {
-			name := result.Title
-			if len(result.Reports) > 1 {
-				name = fmt.Sprintf("%s (run %d)", result.Title, i+1)
+// JUnit writes one test case per run, grouped into one suite per scenario
+// and endpoint. Each failure carries the plain-language explanation, which is
+// what shows up in a CI test tab.
+func JUnit(w io.Writer, audits []audit.Report) error {
+	out := junitSuites{Name: "RecoveryLab: " + suiteName(audits)}
+	for _, r := range audits {
+		for _, result := range r.Results {
+			suite := junitSuite{Name: result.Title, Time: "0"}
+			if len(audits) > 1 {
+				suite.Name = r.Name + ": " + result.Title
 			}
-			c := junitCase{Name: name, Classname: r.Name, Time: seconds(run.DurationMS)}
-			total += run.DurationMS
-			detail := explanation(explain.Report(run), run.Error)
-			switch run.Status {
-			case "PASS":
-			case "VIOLATION":
-				c.Failure = &junitProblem{Message: run.Error, Text: detail}
-				suite.Failures++
-			default:
-				c.Error = &junitProblem{Message: run.Error, Text: detail}
-				suite.Errors++
-			}
-			suite.Cases = append(suite.Cases, c)
-			suite.Tests++
+			addCases(&suite, r, result)
+			out.Tests += suite.Tests
+			out.Failures += suite.Failures
+			out.Errors += suite.Errors
+			out.Skipped += suite.Skipped
+			out.Suites = append(out.Suites, suite)
 		}
-		if len(result.Reports) > 0 {
-			suite.Time = seconds(total)
-		}
-		out.Tests += suite.Tests
-		out.Failures += suite.Failures
-		out.Errors += suite.Errors
-		out.Skipped += suite.Skipped
-		out.Suites = append(out.Suites, suite)
 	}
 	if _, err := io.WriteString(w, xml.Header); err != nil {
 		return err
@@ -97,6 +75,44 @@ func JUnit(w io.Writer, r audit.Report) error {
 	}
 	_, err := io.WriteString(w, "\n")
 	return err
+}
+
+func suiteName(audits []audit.Report) string {
+	if len(audits) == 1 {
+		return audits[0].Name
+	}
+	return fmt.Sprintf("%d endpoints", len(audits))
+}
+
+func addCases(suite *junitSuite, r audit.Report, result audit.Result) {
+	if result.Status == "SKIPPED" {
+		suite.Cases = []junitCase{{Name: result.Title, Classname: r.Name, Time: "0", Skipped: &junitProblem{Message: result.Reason}}}
+		suite.Tests, suite.Skipped = 1, 1
+	}
+	var total int64
+	for i, run := range result.Reports {
+		name := result.Title
+		if len(result.Reports) > 1 {
+			name = fmt.Sprintf("%s (run %d)", result.Title, i+1)
+		}
+		c := junitCase{Name: name, Classname: r.Name, Time: seconds(run.DurationMS)}
+		total += run.DurationMS
+		detail := explanation(explain.Report(run), run.Error)
+		switch run.Status {
+		case "PASS":
+		case "VIOLATION":
+			c.Failure = &junitProblem{Message: run.Error, Text: detail}
+			suite.Failures++
+		default:
+			c.Error = &junitProblem{Message: run.Error, Text: detail}
+			suite.Errors++
+		}
+		suite.Cases = append(suite.Cases, c)
+		suite.Tests++
+	}
+	if len(result.Reports) > 0 {
+		suite.Time = seconds(total)
+	}
 }
 
 func explanation(d explain.Diagnosis, raw string) string {

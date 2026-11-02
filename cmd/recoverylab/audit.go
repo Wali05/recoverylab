@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Wali05/recoverylab/internal/audit"
@@ -25,8 +27,8 @@ func runAudit(args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if fs.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: recoverylab audit [--bursts N] [--format text|json] [--output AUDIT.json] SCENARIO.json")
+	if fs.NArg() == 0 {
+		fmt.Fprintln(os.Stderr, "usage: recoverylab audit [--bursts N] [--format text|json] [--output AUDIT.json] SCENARIO.json|DIR ...")
 		return 2
 	}
 	if *format != "text" && *format != "json" {
@@ -37,37 +39,63 @@ func runAudit(args []string) int {
 		fmt.Fprintln(os.Stderr, "--bursts must be between 1 and 100")
 		return 2
 	}
-	base, err := config.Parse(fs.Arg(0))
+	files, err := scenarioFiles(fs.Args())
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "invalid scenario:", err)
+		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	steps := audit.Plan(base, *bursts)
-	runnable := 0
-	for _, step := range steps {
-		if step.SkipReason == "" {
-			runnable++
-		}
+
+	// Check every file before running anything, so a typo in the tenth
+	// scenario doesn't waste the time spent on the first nine.
+	type planned struct {
+		base  config.Config
+		steps []audit.Step
 	}
-	if runnable == 0 {
-		fmt.Fprintln(os.Stderr, "invalid scenario: nothing to audit")
+	var plans []planned
+	for _, file := range files {
+		base, err := config.Parse(file)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "invalid scenario:", err)
+			return 2
+		}
+		steps := audit.Plan(base, *bursts)
+		runnable := false
 		for _, step := range steps {
-			fmt.Fprintf(os.Stderr, "  %s: %s\n", step.Title, step.SkipReason)
+			runnable = runnable || step.SkipReason == ""
 		}
-		return 2
+		if !runnable {
+			fmt.Fprintf(os.Stderr, "invalid scenario %s: nothing to audit\n", file)
+			for _, step := range steps {
+				fmt.Fprintf(os.Stderr, "  %s: %s\n", step.Title, step.SkipReason)
+			}
+			return 2
+		}
+		plans = append(plans, planned{base, steps})
 	}
 
 	s := newStyle(os.Stdout)
 	text := *format == "text"
-	if text {
-		printAuditHeader(os.Stdout, s, base)
-	}
-	outcome := audit.Run(context.Background(), base, steps, func(r audit.Result) {
+	var outcomes []audit.Report
+	for _, p := range plans {
 		if text {
-			printAuditLine(os.Stdout, s, r)
+			printAuditHeader(os.Stdout, s, p.base)
 		}
-	})
-	encoded, err := json.MarshalIndent(outcome, "", "  ")
+		outcome := audit.Run(context.Background(), p.base, p.steps, func(r audit.Result) {
+			if text {
+				printAuditLine(os.Stdout, s, r)
+			}
+		})
+		if text {
+			printAuditSummary(os.Stdout, s, outcome)
+		}
+		outcomes = append(outcomes, outcome)
+	}
+	suite := audit.Combine(outcomes)
+	var payload any = suite
+	if len(outcomes) == 1 {
+		payload = outcomes[0]
+	}
+	encoded, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "encode audit:", err)
 		return 2
@@ -78,16 +106,16 @@ func runAudit(args []string) int {
 			return 2
 		}
 	}
-	if err := writeReports(outcome, *junit, *html, *markdown); err != nil {
+	if err := writeReports(outcomes, *junit, *html, *markdown); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	if text {
-		printAuditSummary(os.Stdout, s, outcome)
-	} else {
+	if !text {
 		fmt.Println(string(encoded))
+	} else if len(outcomes) > 1 {
+		printSuiteSummary(os.Stdout, s, suite)
 	}
-	switch outcome.Status {
+	switch suite.Status {
 	case "PASS":
 		return 0
 	case "VIOLATION":
@@ -97,8 +125,43 @@ func runAudit(args []string) int {
 	}
 }
 
+// scenarioFiles expands folders to the .json files directly inside them,
+// in name order.
+func scenarioFiles(args []string) ([]string, error) {
+	var files []string
+	for _, arg := range args {
+		info, err := os.Stat(arg)
+		if err != nil {
+			return nil, err
+		}
+		if !info.IsDir() {
+			files = append(files, arg)
+			continue
+		}
+		matches, err := filepath.Glob(filepath.Join(arg, "*.json"))
+		if err != nil {
+			return nil, err
+		}
+		if len(matches) == 0 {
+			return nil, fmt.Errorf("%s has no .json scenarios", arg)
+		}
+		sort.Strings(matches)
+		files = append(files, matches...)
+	}
+	return files, nil
+}
+
+func printSuiteSummary(w io.Writer, s style, suite audit.Suite) {
+	fmt.Fprintf(w, "%s\n\n %s %s\n\n", s.dim(strings.Repeat("─", 72)), s.badge(suite.Status, 0), s.bold(fmt.Sprintf("%d endpoints · %d of %d checks held", suite.Endpoints, suite.Held, suite.Ran())))
+	for _, r := range suite.Audits {
+		mark := map[string]string{"PASS": s.green("✓"), "VIOLATION": s.red("✗"), "ERROR": s.amber("!")}[r.Status]
+		fmt.Fprintf(w, "  %s %s %s\n", mark, fmt.Sprintf("%-40s", r.Method+" "+r.URL), s.dim(fmt.Sprintf("%d of %d held", r.Held, r.Held+r.Violations+r.Errors)))
+	}
+	fmt.Fprintln(w)
+}
+
 // writeReports saves the optional JUnit and HTML versions of a result.
-func writeReports(r audit.Report, junitPath, htmlPath, markdownPath string) error {
+func writeReports(r []audit.Report, junitPath, htmlPath, markdownPath string) error {
 	write := func(path, kind string, render func(io.Writer) error) error {
 		if path == "" {
 			return nil

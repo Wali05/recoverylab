@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RecoveryLab · {{.Name}}</title>
+<title>RecoveryLab · {{.Title}}</title>
 <style>
 :root {
   --bg: #f7f7f5; --panel: #ffffff; --ink: #1c1d1f; --muted: #6b6f76; --line: #e3e3df;
@@ -36,7 +36,14 @@ section.card { background: var(--panel); border: 1px solid var(--line); border-r
 section.card.violation { border-left: 4px solid var(--bad); }
 section.card.error { border-left: 4px solid var(--warn); }
 .card-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
-.card-head h2 { font-size: 17px; margin: 0; }
+.card-head h3 { font-size: 17px; margin: 0; }
+section.endpoint { margin-top: 40px; }
+section.endpoint > h2 { font-size: 20px; margin: 0 0 6px; overflow-wrap: anywhere; }
+section.endpoint > .verdict { margin: 12px 0 16px; }
+ul.toc { list-style: none; padding: 0; margin: 18px 0 0; font-size: 14px; }
+ul.toc li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; padding: 6px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+ul.toc a { color: inherit; text-decoration: none; font-family: var(--mono); font-size: 13px; }
+ul.toc a:hover { text-decoration: underline; }
 .note { color: var(--muted); font-size: 13px; }
 .summary { margin: 10px 0 0; }
 dl.why { display: grid; grid-template-columns: 120px 1fr; gap: 6px 14px; margin: 14px 0 0; }
@@ -68,22 +75,54 @@ footer p { margin: 4px 0; }
 </head>
 <body>
 <main>
+{{if .Single}}{{with index .Audits 0}}
 <header>
   <p class="eyebrow">RecoveryLab report</p>
   <h1>{{.Name}}</h1>
   <div class="request">{{.Method}} {{.URL}}</div>
   <div class="verdict">
     <span class="pill {{lower .Status}}">{{.Status}}</span>
-    <span class="score">{{.Held}} of {{.Ran}} {{if eq .Ran 1}}check{{else}}checks{{end}} held</span>
+    <span class="score">{{.Held}} of {{ran .}} {{if eq (ran .) 1}}check{{else}}checks{{end}} held</span>
     {{if .Skipped}}<span class="note">{{.Skipped}} skipped</span>{{end}}
   </div>
 </header>
+{{template "cards" .}}
+{{end}}{{else}}
+<header>
+  <p class="eyebrow">RecoveryLab report</p>
+  <h1>{{.Suite.Endpoints}} endpoints</h1>
+  <div class="verdict">
+    <span class="pill {{lower .Suite.Status}}">{{.Suite.Status}}</span>
+    <span class="score">{{.Suite.Held}} of {{.Suite.Ran}} checks held</span>
+    {{if .Suite.Skipped}}<span class="note">{{.Suite.Skipped}} skipped</span>{{end}}
+  </div>
+  <ul class="toc">
+    {{range $i, $a := .Audits}}<li><a href="#endpoint-{{$i}}"><span class="pill {{lower $a.Status}}">{{mark $a.Status}}</span> {{$a.Method}} {{$a.URL}}</a> <span class="note">{{$a.Held}} of {{ran $a}} held</span></li>{{end}}
+  </ul>
+</header>
+{{range $i, $a := .Audits}}
+<section class="endpoint" id="endpoint-{{$i}}">
+  <h2>{{$a.Name}}</h2>
+  <div class="request">{{$a.Method}} {{$a.URL}}</div>
+  <div class="verdict"><span class="pill {{lower $a.Status}}">{{$a.Status}}</span><span class="score">{{$a.Held}} of {{ran $a}} checks held</span>{{if $a.Skipped}}<span class="note">{{$a.Skipped}} skipped</span>{{end}}</div>
+  {{template "cards" $a}}
+</section>
+{{end}}
+{{end}}
 
+<footer>
+  <p>Each check compares the state your service exposes before and after a real failure. A pass covers this request and these counters, not every path through the service.</p>
+  <p>RecoveryLab {{.Version}} · {{.Generated}}</p>
+</footer>
+</main>
+</body>
+</html>
+{{define "cards"}}
 {{range .Results}}
 <section class="card {{lower .Status}}">
   <div class="card-head">
     <span class="pill {{lower .Status}}">{{mark .Status}} {{.Status}}</span>
-    <h2>{{.Title}}</h2>
+    <h3>{{.Title}}</h3>
     {{if gt .Runs 1}}<span class="note">{{.Passed}} of {{.Runs}} runs held</span>{{end}}
     {{if and .Note (ne .Status "SKIPPED")}}<span class="note">{{.Note}}</span>{{end}}
   </div>
@@ -120,11 +159,4 @@ footer p { margin: 4px 0; }
   {{end}}
 </section>
 {{end}}
-
-<footer>
-  <p>Each check compares the state your service exposes before and after a real failure. A pass covers this request and these counters, not every path through the service.</p>
-  <p>RecoveryLab {{.Version}} · {{.Generated}}</p>
-</footer>
-</main>
-</body>
-</html>
+{{end}}

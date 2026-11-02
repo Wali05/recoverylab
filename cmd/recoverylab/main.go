@@ -74,7 +74,7 @@ Usage:
   recoverylab demo
   recoverylab discover --base http://127.0.0.1:8000 [--openapi URL|FILE] [--out DIR]
   recoverylab init --url WRITE_URL --state STATE_URL [--body JSON] [--out FILE]
-  recoverylab audit [--bursts N] [--format text|json] [--output AUDIT.json] SCENARIO.json
+  recoverylab audit [--bursts N] [--format text|json] [--output AUDIT.json] SCENARIO.json|DIR ...
   recoverylab validate SCENARIO.json
   recoverylab run [--format text|json] [--output REPORT.json] [--repeat N] SCENARIO.json
 
@@ -158,7 +158,7 @@ func runFile(args []string) int {
 			return 2
 		}
 	}
-	if err := writeReports(audit.FromRuns(c, reports), *junit, *html, *markdown); err != nil {
+	if err := writeReports([]audit.Report{audit.FromRuns(c, reports)}, *junit, *html, *markdown); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}

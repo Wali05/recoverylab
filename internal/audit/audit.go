@@ -324,3 +324,33 @@ func first(r Result) engine.Report {
 	}
 	return r.Reports[0]
 }
+
+// Suite is several audits run together, usually one per endpoint.
+type Suite struct {
+	Status     string   `json:"status"`
+	Endpoints  int      `json:"endpoints"`
+	Held       int      `json:"held"`
+	Violations int      `json:"violations"`
+	Errors     int      `json:"errors"`
+	Skipped    int      `json:"skipped"`
+	Audits     []Report `json:"audits"`
+}
+
+func Combine(reports []Report) Suite {
+	s := Suite{Status: "PASS", Endpoints: len(reports), Audits: reports}
+	for _, r := range reports {
+		s.Held += r.Held
+		s.Violations += r.Violations
+		s.Errors += r.Errors
+		s.Skipped += r.Skipped
+	}
+	if s.Violations > 0 {
+		s.Status = "VIOLATION"
+	} else if s.Errors > 0 {
+		s.Status = "ERROR"
+	}
+	return s
+}
+
+// Ran counts the checks that produced a verdict either way.
+func (s Suite) Ran() int { return s.Held + s.Violations + s.Errors }

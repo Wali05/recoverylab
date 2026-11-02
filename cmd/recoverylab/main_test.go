@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/Wali05/recoverylab/internal/audit"
 	"github.com/Wali05/recoverylab/internal/config"
 	"github.com/Wali05/recoverylab/internal/engine"
 	"github.com/Wali05/recoverylab/internal/fixture"
@@ -116,5 +118,39 @@ func TestDiscoverWritesScenariosFromOpenAPI(t *testing.T) {
 	}
 	if code := run([]string{"discover", "--base", server.URL + "/nothing-here"}); code != 2 {
 		t.Fatal("discover should fail when no document is found")
+	}
+}
+
+func TestAuditFolderCombinesEndpoints(t *testing.T) {
+	handler, err := fixture.New("correct", filepath.Join(t.TempDir(), "journal.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	dir := t.TempDir()
+	for _, name := range []string{"a", "b"} {
+		body := `{"name":"` + name + `","request":{"method":"POST","url":"` + server.URL + `/operations","headers":{"Idempotency-Key":"` + name + `-{{run_id}}"},"body":{"amount":1}},"observe":{"url":"` + server.URL + `/operations","pointer":"","measure":"length","expected_delta":1}}`
+		if err := os.WriteFile(filepath.Join(dir, name+".json"), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := filepath.Join(t.TempDir(), "audit.json")
+	if code := run([]string{"audit", "--bursts", "1", "--output", out, dir}); code != 0 {
+		t.Fatalf("audit exited %d", code)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var suite audit.Suite
+	if err := json.Unmarshal(data, &suite); err != nil {
+		t.Fatal(err)
+	}
+	if suite.Status != "PASS" || suite.Endpoints != 2 || suite.Held != 6 || suite.Audits[1].Name != "b" {
+		t.Fatalf("unexpected suite: %+v", suite)
+	}
+	if code := run([]string{"audit", filepath.Join(dir, "missing.json")}); code != 2 {
+		t.Fatal("a missing file should be a usage error")
 	}
 }
