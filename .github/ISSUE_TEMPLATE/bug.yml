@@ -1,0 +1,36 @@
+name: Something looks wrong
+description: A verdict you don't believe, a crash, or a confusing message.
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command you ran and what it printed. Remove any tokens first.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Scenario file
+      description: The JSON scenario, with secrets removed.
+      render: json
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `recoverylab version`.
+      placeholder: RecoveryLab 0.6.0
+    validations:
+      required: true
+  - type: input
+    id: service
+    attributes:
+      label: What you were testing
+      description: Framework and database, if you can share them, such as FastAPI with Postgres.

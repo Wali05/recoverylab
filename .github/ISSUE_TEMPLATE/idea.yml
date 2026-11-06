@@ -1,0 +1,14 @@
+name: Idea or missing check
+description: A failure RecoveryLab should be able to inject, or something that would make it easier to use.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What went wrong in a real service, or what was hard to set up.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
