@@ -39,11 +39,24 @@ outputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-go@v7
+    # A release tag such as @v0.6.0 downloads that release's binary and checks
+    # it against the published SHA-256 sums. @main, a commit SHA, or a failed
+    # download builds from source instead.
+    - name: Download RecoveryLab
+      id: download
+      shell: bash
+      env:
+        ACTION_REF: ${{ github.action_ref }}
+        ACTION_REPO: ${{ github.action_repository }}
+        RELEASES: ${{ github.server_url }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/action-download.sh"
+    - if: steps.download.outputs.build == 'true'
+      uses: actions/setup-go@v7
       with:
         go-version: stable
         cache: false
     - name: Build RecoveryLab
+      if: steps.download.outputs.build == 'true'
       shell: bash
       working-directory: ${{ github.action_path }}
       run: go build -o "$RUNNER_TEMP/recoverylab-bin/recoverylab$([[ "$RUNNER_OS" == Windows ]] && echo .exe)" ./cmd/recoverylab
