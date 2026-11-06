@@ -263,3 +263,25 @@ func TestLoadAcceptsSchemaKey(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestHeadersReadSecretsFromTheEnvironment(t *testing.T) {
+	t.Setenv("RECOVERYLAB_TEST_TOKEN", "s3cret")
+	c := Config{
+		Name:    "auth-{{env:RECOVERYLAB_TEST_TOKEN}}",
+		Request: Request{URL: "http://127.0.0.1:8080/{{env:RECOVERYLAB_TEST_TOKEN}}", Headers: map[string]string{"Authorization": "Bearer {{env:RECOVERYLAB_TEST_TOKEN}}"}},
+		Observe: Observation{Headers: map[string]string{"X-Key": "{{env:RECOVERYLAB_TEST_TOKEN}}-{{run_id}}"}},
+	}
+	if err := c.Resolve("r1"); err != nil {
+		t.Fatal(err)
+	}
+	if c.Request.Headers["Authorization"] != "Bearer s3cret" || c.Observe.Headers["X-Key"] != "s3cret-r1" {
+		t.Fatalf("headers not expanded: %+v", c)
+	}
+	if strings.Contains(c.Name, "s3cret") || strings.Contains(c.Request.URL, "s3cret") {
+		t.Fatalf("a secret leaked outside the headers: %q %q", c.Name, c.Request.URL)
+	}
+	c.Request.Headers = map[string]string{"Authorization": "{{env:RECOVERYLAB_UNSET_A}} {{env:RECOVERYLAB_UNSET_A}}"}
+	if err := c.Resolve("r2"); err == nil || !strings.Contains(err.Error(), "RECOVERYLAB_UNSET_A is not set") {
+		t.Fatalf("missing variable: %v", err)
+	}
+}

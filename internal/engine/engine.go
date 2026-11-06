@@ -133,7 +133,10 @@ func Run(parent context.Context, c config.Config) (r Report) {
 		return r
 	}
 	r.RunID = id
-	c.Resolve(id)
+	if err := c.Resolve(id); err != nil {
+		r.Error = err.Error()
+		return r
+	}
 	if err := c.Validate(); err != nil {
 		r.Error = err.Error()
 		return r

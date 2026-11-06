@@ -13,6 +13,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -143,36 +146,57 @@ func NewRunID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-func (c *Config) Resolve(runID string) {
+// Resolve fills in {{run_id}} everywhere and {{env:NAME}} in header values.
+// Environment values are read only into headers, so a token never ends up in
+// a report, which shows names and URLs but never headers.
+func (c *Config) Resolve(runID string) error {
 	replace := func(s string) string { return strings.ReplaceAll(s, "{{run_id}}", runID) }
+	var missing []string
+	headers := func(in map[string]string) map[string]string {
+		out := make(map[string]string, len(in))
+		for k, v := range in {
+			value, unset := expandEnv(replace(v))
+			missing = append(missing, unset...)
+			out[k] = value
+		}
+		return out
+	}
 	c.Name = replace(c.Name)
 	c.Request.URL = replace(c.Request.URL)
-	requestHeaders := make(map[string]string, len(c.Request.Headers))
-	for k, v := range c.Request.Headers {
-		requestHeaders[k] = replace(v)
-	}
-	c.Request.Headers = requestHeaders
+	c.Request.Headers = headers(c.Request.Headers)
 	c.Request.Body = json.RawMessage(replace(string(c.Request.Body)))
 	c.ChangedBody = json.RawMessage(replace(string(c.ChangedBody)))
 	c.Observe.Name = replace(c.Observe.Name)
 	c.Observe.URL = replace(c.Observe.URL)
-	observeHeaders := make(map[string]string, len(c.Observe.Headers))
-	for k, v := range c.Observe.Headers {
-		observeHeaders[k] = replace(v)
-	}
-	c.Observe.Headers = observeHeaders
+	c.Observe.Headers = headers(c.Observe.Headers)
 	checks := make([]Observation, len(c.Checks))
 	copy(checks, c.Checks)
 	for i := range checks {
 		checks[i].Name = replace(checks[i].Name)
 		checks[i].URL = replace(checks[i].URL)
-		headers := make(map[string]string, len(checks[i].Headers))
-		for k, v := range checks[i].Headers {
-			headers[k] = replace(v)
-		}
-		checks[i].Headers = headers
+		checks[i].Headers = headers(checks[i].Headers)
 	}
 	c.Checks = checks
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return fmt.Errorf("environment variable %s is not set; the scenario's headers use it", strings.Join(slices.Compact(missing), ", "))
+	}
+	return nil
+}
+
+var envRef = regexp.MustCompile(`\{\{env:([A-Za-z_][A-Za-z0-9_]*)\}\}`)
+
+func expandEnv(s string) (string, []string) {
+	var missing []string
+	out := envRef.ReplaceAllStringFunc(s, func(ref string) string {
+		name := envRef.FindStringSubmatch(ref)[1]
+		value, ok := os.LookupEnv(name)
+		if !ok {
+			missing = append(missing, name)
+		}
+		return value
+	})
+	return out, missing
 }
 
 func (c Config) Observations() []Observation {
