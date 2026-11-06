@@ -59,6 +59,8 @@ The state check can reveal a second write, while the response check can reveal a
 
 Key reuse needs a changed body. When the file has no `changed_body`, the audit changes the first number it finds (reading keys alphabetically) by one, or else the first string that doesn't contain `{{run_id}}`, or else the first boolean, and notes what it changed. A body with nothing to change, or a request without an `Idempotency-Key` header, skips the step. The crash step is skipped without a `service` block and otherwise always retries after restart, so it catches both a lost write and a service that forgets its keys.
 
+Two response rules are on in an audit unless the scenario sets its own. Retries use `retry_response.compare_ids`: RecoveryLab picks ID-like fields (`id`, `uuid`, and names ending in `_id` or `Id`) from the original reply, at the top level or one object down. It then requires a 2xx retry to return the same values. Names containing `request`, `trace`, `span`, `correlation`, `session`, `idempotency`, `nonce`, or `etag` are skipped because they're expected to change. Bursts use `concurrent_response.no_server_errors`, so any 5xx in a burst is a violation even when the count is right. Declaring `same_json_pointers` or `allowed_statuses` replaces these defaults.
+
 Skipped steps don't fail the audit; the report lists each one with its reason. The audit exits like `run`: 1 if any step found a violation, otherwise 2 if any step couldn't finish.
 
 ## Discover

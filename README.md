@@ -60,12 +60,12 @@ recoverylab audit recoverylab.json
 
 `audit` takes one scenario, several, or a folder, and runs every failure that applies to each request:
 
-- **Lost response:** the reply vanishes and the client retries.
-- **Concurrent duplicates:** five bursts of 16 identical requests (`--bursts` changes the count), because a race doesn't show up every time.
+- **Lost response:** the reply vanishes and the client retries. The retry must succeed and return the same IDs as the lost reply, so `"id"` or `"order_id"` can't change. Fields meant to differ per request, such as `request_id`, are ignored.
+- **Concurrent duplicates:** five bursts of 16 identical requests (`--bursts` changes the count), because a race doesn't show up every time. Besides the count, no copy may get a 5xx. A duplicate that arrives mid-request should get 409, as the [IETF Idempotency-Key draft](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-idempotency-key-header) and [Stripe](https://docs.stripe.com/idempotency) do.
 - **Key reuse:** the same key with one value in the body changed, such as `quantity` going from 1 to 2. Set `changed_body` to choose the change yourself.
 - **Crash after ack:** RecoveryLab kills your process right after a 2xx, restarts it, checks the write survived, and retries. This one needs a [`service` block](#test-a-crash-after-a-successful-response) so RecoveryLab can start your server itself; otherwise it's skipped and the audit tells you why.
 
-Every finding comes with an explanation written for the person who has to fix it. For a check-then-write race, that's the race itself, plus "make claiming the key atomic: a unique index on the key plus `INSERT ... ON CONFLICT DO NOTHING`". If RecoveryLab couldn't finish (nothing listening, a pointer that doesn't match, a first request that failed), it says so and suggests the next thing to try instead of handing you a stack trace.
+Every finding comes with an explanation written for the person who has to fix it. For a check-then-write race, that's the race itself, plus "make claiming the key atomic: a unique index on the key plus `INSERT ... ON CONFLICT DO NOTHING`". If RecoveryLab couldn't finish (nothing listening, a pointer that doesn't match, a first request that failed), it says so and suggests the next thing to try instead of handing you a stack trace. Each finding also links to [the fixing guide](docs/fixing.md), which shows the whole pattern: one table, one transaction, the replay, and the 409, with PostgreSQL and Go code.
 
 To keep or share the result, add `--html report.html` for a single-file report with the full timeline, `--junit report.xml` for your CI's test tab, `--markdown summary.md` for a pull request comment, or `--badge badge.svg` for your own README:
 
@@ -94,6 +94,14 @@ I also [checked changed-payload key reuse](docs/key-reuse-check.md) against the 
 For breadth, I also tried the older state-only test against [20 small FastAPI repos](docs/compatibility-checks.md) and [27 Flask, Express, and Spring repos](docs/compatibility-checks-2.md). That historical sweep, including the three earlier checks, covered **50 distinct repos**; the SQLite check above is additional. The extra 47 are mostly educational CRUD apps, not a representative sample of production systems. In those runs, 36 created two records and 11 created one; ten of the 11 one-record runs returned an error on retry. Those are historical v0.1.2 verdicts; the current version would flag those ten rejected retries as violations. The linked notes preserve the original run data.
 
 ## Install
+
+On macOS or Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Wali05/recoverylab/main/install.sh | sh
+```
+
+The [script](install.sh) downloads the latest release for your system, checks it against the published SHA-256 sums, and installs it to `~/.local/bin`. Set `RECOVERYLAB_VERSION=v0.6.0` to pick a version or `RECOVERYLAB_INSTALL_DIR` to pick the folder. It's short enough to read before you run it.
 
 If you have Go 1.23 or newer:
 
@@ -162,7 +170,7 @@ The `retry_response` block compares a stable value in the original and retry rep
 
 Your API doesn't need a special count endpoint. If `GET /orders` returns a list, point at the array and add `"measure": "length"`: `{ "url": "http://127.0.0.1:8080/orders", "pointer": "/data", "measure": "length", "expected_delta": 1 }`. Use `"pointer": ""` when the response itself is the array. A `null` list counts as zero. Paginated lists only show one page, so use a page size larger than the test data.
 
-If the state endpoint needs authentication, add `"headers": { "Authorization": "Bearer ..." }` inside `observe`. Keep credentials out of files you commit.
+If the state endpoint needs authentication, add `"headers": { "Authorization": "Bearer {{env:API_TOKEN}}" }` inside `observe`, and the same in `request.headers` if the write needs it. `{{env:NAME}}` reads the variable when the scenario runs, so the token never sits in a file you commit, and a missing variable stops the run with its name. It works only in header values, which reports never include.
 
 One count can hide another broken effect. To check several effects, replace `observe` with named `checks` (up to 16). For example, checking orders alone would miss a duplicate charge:
 
@@ -250,7 +258,7 @@ A single run may miss an intermittent race. With the fixture or your service run
 The repo is also a GitHub Action. Start your API in the job however you normally do, then:
 
 ```yaml
-- uses: Wali05/recoverylab@main   # pin a commit SHA for repeatable builds
+- uses: Wali05/recoverylab@v0.6.0
   with:
     scenario: recoverylab/        # from recoverylab discover, or one .json file
 - uses: actions/upload-artifact@v4
@@ -260,7 +268,7 @@ The repo is also a GitHub Action. Start your API in the job however you normally
     path: recoverylab-report.html
 ```
 
-The job fails on a violation, the job page gets a summary table with the explanations, and the uploaded HTML report has the full timeline. Inputs: `command` (`audit` or `run`), `bursts`, `repeat`, `html`, `junit`, `badge`, and `summary`. The `status` output is `PASS`, `VIOLATION`, or `ERROR`. RecoveryLab's own CI [runs the action](.github/workflows/ci.yml) against the built-in fixture on every push, and runs `discover` against the fixture's OpenAPI document.
+Pinned to a release, the action downloads that release's binary and checks its SHA-256 sum, so it starts in seconds. `@main` or a commit SHA builds from source instead. The job fails on a violation, the job page gets a summary table with the explanations, and the uploaded HTML report has the full timeline. Inputs: `command` (`audit` or `run`), `bursts`, `repeat`, `html`, `junit`, `badge`, and `summary`. The `status` output is `PASS`, `VIOLATION`, or `ERROR`. RecoveryLab's own CI [runs the action](.github/workflows/ci.yml) against the built-in fixture on every push, and runs `discover` against the fixture's OpenAPI document.
 
 Outside GitHub, install the binary and run `recoverylab audit --junit report.xml scenario.json`; exit codes are listed below.
 
@@ -271,6 +279,6 @@ go test ./...
 go vet ./...
 ```
 
-The project uses only Go's standard library. Code lives in `internal/`: `engine` injects the faults, `audit` plans and runs a full audit, `explain` turns a report into plain language, `openapi` reads OpenAPI documents for `discover`, and `report` writes HTML, JUnit, Markdown, and badges. Changes are listed in the [changelog](CHANGELOG.md). Tagged builds produce Windows, Linux, and macOS binaries for GitHub Releases; see the [release workflow](.github/workflows/release.yml).
+The project uses only Go's standard library. Code lives in `internal/`: `engine` injects the faults, `audit` plans and runs a full audit, `explain` turns a report into plain language, `openapi` reads OpenAPI documents for `discover`, and `report` writes HTML, JUnit, Markdown, and badges. Changes are listed in the [changelog](CHANGELOG.md). See [CONTRIBUTING.md](CONTRIBUTING.md) to work on it and [SECURITY.md](SECURITY.md) to report a security problem. Tagged builds produce Windows, Linux, and macOS binaries for GitHub Releases; see the [release workflow](.github/workflows/release.yml).
 
 MIT licensed. See [LICENSE](LICENSE).

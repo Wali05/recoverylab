@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0
+
+Stricter checks, a guide to fixing what they find, and faster installs.
+
+- A retry must now return the same IDs as the lost reply. `audit` compares fields such as `id` and `order_id` automatically, and `retry_response.compare_ids` turns it on for `run`. Per-request fields like `request_id` are ignored.
+- A concurrent burst fails on any 5xx in an audit, even when the count is right. A duplicate in flight should get 409. `concurrent_response.no_server_errors` turns this on for `run`.
+- [The fixing guide](https://github.com/Wali05/recoverylab/blob/main/docs/fixing.md) explains the idempotency-key pattern with PostgreSQL and Go code, and every finding links to the section that fixes it.
+- `{{env:NAME}}` in header values reads secrets from the environment, so tokens stay out of scenario files.
+- `install.sh` installs the latest release on macOS and Linux after checking its SHA-256 sum.
+- The GitHub Action downloads and verifies the release binary when pinned to a release instead of building from source.
+- Release notes start with the version's changelog section.
+- CI runs `staticcheck` and installs the published release with `install.sh`. Added issue forms, Dependabot, and security and contributing notes.
+
 ## 0.5.0
 
 The big change: you no longer have to write scenarios by hand or read raw numbers to understand a failure.
