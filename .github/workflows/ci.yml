@@ -56,3 +56,17 @@ jobs:
           for i in $(seq 50); do curl -fs http://127.0.0.1:18080/health && break; sleep 0.1; done
           ./recoverylab discover --base http://127.0.0.1:18080 --out "$RUNNER_TEMP/scenarios"
           ./recoverylab audit --bursts 3 --badge "$RUNNER_TEMP/badge.svg" --markdown "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP/scenarios"
+  # Install the latest published release the way the README says to.
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - run: sh install.sh
+        env:
+          RECOVERYLAB_INSTALL_DIR: ${{ runner.temp }}/bin
+          GH_TOKEN: ${{ github.token }}
+      - run: '"$RUNNER_TEMP/bin/recoverylab" demo'
