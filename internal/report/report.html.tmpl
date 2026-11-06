@@ -50,6 +50,7 @@ dl.why { display: grid; grid-template-columns: 120px 1fr; gap: 6px 14px; margin:
 dl.why dt { color: var(--muted); font-size: 13px; padding-top: 1px; }
 dl.why dd { margin: 0; }
 dl.why ul { margin: 0; padding-left: 18px; }
+dl.why a { color: inherit; text-underline-offset: 2px; }
 details { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
 summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 table { border-collapse: collapse; width: 100%; margin: 12px 0 4px; font-size: 14px; }
@@ -135,6 +136,7 @@ footer p { margin: 4px 0; }
   <dl class="why">
     {{if .Cause}}<dt>Likely cause</dt><dd>{{.Cause}}</dd>{{end}}
     {{if .Fixes}}<dt>How to fix</dt><dd><ul>{{range .Fixes}}<li>{{.}}</li>{{end}}</ul></dd>{{end}}
+    {{if .Learn}}<dt>Learn more</dt><dd><a href="{{.Learn}}">Worked example in the fixing guide</a></dd>{{end}}
   </dl>
   {{end}}
   {{end}}

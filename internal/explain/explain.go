@@ -14,7 +14,15 @@ type Diagnosis struct {
 	Summary string   `json:"summary"`
 	Cause   string   `json:"cause,omitempty"`
 	Fixes   []string `json:"fixes,omitempty"`
+	// Learn links to the section of the fixing guide with a worked example.
+	Learn string `json:"learn_more,omitempty"`
 }
+
+// Guide is the fixing guide's address. It points at main so links in old
+// reports keep working after the guide improves.
+const Guide = "https://github.com/Wali05/recoverylab/blob/main/docs/fixing.md"
+
+func guide(anchor string) string { return Guide + "#" + anchor }
 
 func Report(r engine.Report) Diagnosis {
 	switch r.Status {
@@ -87,6 +95,7 @@ func unchanged(checks []engine.StateCheck) (Diagnosis, bool) {
 	}
 	return Diagnosis{
 		Summary: fmt.Sprintf("The service answered 2xx, but %s didn't change at all.", label(c)),
+		Learn:   guide("reply-after-the-write-commits"),
 		Cause:   "Either the write happens later (a queue or background job), or the state endpoint isn't measuring what this request writes. RecoveryLab reads state as soon as the requests finish.",
 		Fixes: []string{
 			"Check that the state URL and pointer reflect this request: send it once with curl and watch the value.",
@@ -103,6 +112,7 @@ func lostResponse(r engine.Report) Diagnosis {
 		if *c.Observed > c.Expected {
 			return Diagnosis{
 				Summary: "The retry ran the write a second time (" + effects(c) + ").",
+				Learn:   guide("store-the-key-with-the-effect"),
 				Cause:   "The service doesn't recognize the retry as the same operation. Either it doesn't store idempotency keys, or the key isn't part of the request it checks.",
 				Fixes: []string{
 					"Store the idempotency key alongside the effect, in the same transaction, with a unique constraint on the key.",
@@ -131,6 +141,7 @@ func retryReply(r engine.Report, scenario string) Diagnosis {
 	if !statusAllowed(rr) {
 		d := Diagnosis{
 			Summary: fmt.Sprintf("The write happened once, but %s got HTTP %d.", when, rr.RetryHTTPStatus),
+			Learn:   guide("replay-the-first-response"),
 			Cause:   "A client that sees this will think its request failed, even though it worked. It may give up, show an error, or try something worse.",
 			Fixes: []string{
 				"For a completed key, return the original status and body again.",
@@ -144,6 +155,7 @@ func retryReply(r engine.Report, scenario string) Diagnosis {
 	}
 	return Diagnosis{
 		Summary: fmt.Sprintf("The write happened once, but %s returned a different %s.", when, strings.Join(rr.SameJSONPointers, ", ")),
+		Learn:   guide("replay-the-first-response"),
 		Cause:   "The service handled the duplicate but built a fresh reply. The client may now hold two IDs for one thing.",
 		Fixes:   []string{"Save the original response body with the idempotency key and replay it byte for byte."},
 	}
@@ -166,6 +178,7 @@ func concurrent(r engine.Report) Diagnosis {
 	if c, ok := missed(r.Checks); ok && *c.Observed > c.Expected {
 		return Diagnosis{
 			Summary: fmt.Sprintf("%d identical requests arrived together and %s went up by %d instead of %d.", n, label(c), *c.Observed-c.Baseline, c.Expected-c.Baseline),
+			Learn:   guide("claim-the-key-atomically"),
 			Cause:   "This is a check-then-write race. Several requests asked \"have I seen this key?\" before any of them recorded it, so they all went ahead.",
 			Fixes: []string{
 				"Make claiming the key atomic: a unique index on the key plus INSERT ... ON CONFLICT DO NOTHING, or a row lock, before doing the work.",
@@ -182,6 +195,7 @@ func concurrent(r engine.Report) Diagnosis {
 	if cr := r.ConcurrentResponse; cr != nil && !cr.Passed && cr.NoServerErrors && len(cr.AllowedStatuses) == 0 {
 		return Diagnosis{
 			Summary: "The write happened once, but some copies got a server error: " + strings.Join(cr.Issues, "; ") + ".",
+			Learn:   guide("claim-the-key-atomically"),
 			Cause:   "The losing requests most likely hit a unique-key error while the first one was still running, and it escaped as a 500. Clients usually retry a 500, which piles more load on the same race.",
 			Fixes: []string{
 				"Catch the duplicate-key error and answer 409 Conflict, which tells the client the request is still in progress and can be retried shortly.",
@@ -192,6 +206,7 @@ func concurrent(r engine.Report) Diagnosis {
 	if cr := r.ConcurrentResponse; cr != nil && !cr.Passed {
 		return Diagnosis{
 			Summary: "The write happened once, but some copies got a status your API doesn't promise: " + strings.Join(cr.Issues, "; ") + ".",
+			Learn:   guide("claim-the-key-atomically"),
 			Cause:   "Losing requests usually hit the uniqueness check while the winner was still running and the error escaped unhandled.",
 			Fixes: []string{
 				"Catch the duplicate-key error and answer with 409 (in progress) or the winner's stored reply.",
@@ -213,6 +228,7 @@ func crash(r engine.Report) Diagnosis {
 		if *c.Observed > c.Expected {
 			return Diagnosis{
 				Summary: "The write survived the crash, but retrying after restart ran it again (" + effects(c) + ").",
+				Learn:   guide("keep-keys-across-restarts"),
 				Cause:   "The service forgot which keys it had already handled when it restarted. Keys kept in memory or a local cache disappear with the process.",
 				Fixes:   []string{"Keep idempotency keys in the same durable store as the effect and commit them together."},
 			}
@@ -225,6 +241,7 @@ func crash(r engine.Report) Diagnosis {
 func lostAck(c engine.StateCheck, retried bool) Diagnosis {
 	d := Diagnosis{
 		Summary: "The service said 2xx, then lost the write when it crashed (" + effects(c) + ").",
+		Learn:   guide("reply-after-the-write-commits"),
 		Cause:   "It replied before the write was durable: the work was still in memory, in a background job, or in an uncommitted transaction.",
 		Fixes: []string{
 			"Commit the write (and flush it, if you manage files yourself) before sending the success response.",
@@ -244,6 +261,7 @@ func keyReuse(r engine.Report) Diagnosis {
 	if c, ok := missed(r.Checks); ok && *c.Observed > c.Expected {
 		return Diagnosis{
 			Summary: "A different request with an already-used key created another effect (" + effects(c) + ").",
+			Learn:   guide("bind-the-key-to-the-request"),
 			Cause:   "The service doesn't remember what the key was first used for, so it can't tell a retry from a new request that reused the key by mistake.",
 			Fixes:   []string{"Store a fingerprint of the request (method, path, and body) with the key. If a key comes back with a different fingerprint, reject it with 422 and write nothing."},
 		}
@@ -258,6 +276,7 @@ func keyReuse(r engine.Report) Diagnosis {
 	if kr.ActualHTTPStatus >= 200 && kr.ActualHTTPStatus < 300 {
 		return Diagnosis{
 			Summary: fmt.Sprintf("The changed request got HTTP %d, but nothing new was written.", kr.ActualHTTPStatus),
+			Learn:   guide("bind-the-key-to-the-request"),
 			Cause:   "The service replayed the first result for a different request. The client believes its changed request went through when it didn't.",
 			Fixes:   []string{fmt.Sprintf("Compare a fingerprint of the request body with the one stored for the key, and answer HTTP %d when they differ.", kr.ExpectedHTTPStatus)},
 		}

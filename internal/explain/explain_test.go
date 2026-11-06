@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -131,5 +133,37 @@ func TestDiagnosesServerErrorsUnderConcurrency(t *testing.T) {
 		ConcurrentResponse: &engine.ConcurrentResponseCheck{NoServerErrors: true, Issues: []string{"HTTP 500 returned by 15 concurrent copies"}}}
 	if d := Report(r); !strings.Contains(d.Summary, "server error") || !strings.Contains(d.Fixes[0], "409 Conflict") {
 		t.Fatalf("server errors: %+v", d)
+	}
+}
+
+// Every "learn more" link must land on a heading that exists in the guide.
+func TestGuideLinksPointAtRealSections(t *testing.T) {
+	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "fixing.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings := map[string]bool{}
+	for _, line := range strings.Split(string(doc), "\n") {
+		if title, ok := strings.CutPrefix(line, "## "); ok {
+			slug := strings.Map(func(r rune) rune {
+				switch {
+				case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
+					return r
+				case r == ' ':
+					return '-'
+				}
+				return -1
+			}, strings.ToLower(title))
+			headings[slug] = true
+		}
+	}
+	src, err := os.ReadFile("explain.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range regexp.MustCompile(`guide\("([^"]+)"\)`).FindAllStringSubmatch(string(src), -1) {
+		if !headings[m[1]] {
+			t.Errorf("docs/fixing.md has no section for #%s", m[1])
+		}
 	}
 }

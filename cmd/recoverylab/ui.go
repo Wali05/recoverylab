@@ -96,6 +96,9 @@ func printDiagnosis(w io.Writer, s style, d explain.Diagnosis) {
 		}
 		fmt.Fprintf(w, "  %s• %s\n", s.bold(fmt.Sprintf("%-*s", label, head)), wrapText(fix, width-2, label+4))
 	}
+	if d.Learn != "" {
+		fmt.Fprintf(w, "  %s%s\n", s.bold(fmt.Sprintf("%-*s", label, "Learn more")), s.dim(d.Learn))
+	}
 }
 
 func printReport(w io.Writer, s style, r engine.Report) {

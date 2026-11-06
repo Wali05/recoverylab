@@ -61,6 +61,9 @@ func markdownAudit(b *strings.Builder, heading string, r audit.Report) {
 		for _, fix := range d.Fixes {
 			fmt.Fprintf(b, "- %s\n", fix)
 		}
+		if d.Learn != "" {
+			fmt.Fprintf(b, "\n[How to fix this, with an example](%s)\n", d.Learn)
+		}
 		b.WriteString("\n</details>\n")
 	}
 }

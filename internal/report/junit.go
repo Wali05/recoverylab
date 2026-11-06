@@ -126,6 +126,9 @@ func explanation(d explain.Diagnosis, raw string) string {
 		}
 		lines = append(lines, "  - "+fix)
 	}
+	if d.Learn != "" {
+		lines = append(lines, "", "Learn more: "+d.Learn)
+	}
 	if raw != "" {
 		lines = append(lines, "", raw)
 	}
