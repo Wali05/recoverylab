@@ -55,15 +55,19 @@
       "additionalProperties": false,
       "properties": {
         "allowed_statuses": { "$ref": "#/$defs/statuses" },
-        "same_json_pointers": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "$ref": "#/$defs/pointer" }, "description": "Values that must match between the original reply and the retry, such as /order_id." }
+        "same_json_pointers": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "$ref": "#/$defs/pointer" }, "description": "Values that must match between the original reply and the retry, such as /order_id." },
+        "compare_ids": { "type": "boolean", "description": "Find ID fields such as /id or /order_id in the original reply and require a 2xx retry to return the same values. Ignored when same_json_pointers is set." }
       }
     },
     "concurrent_response": {
       "type": "object",
       "description": "concurrent-duplicates: HTTP codes the burst may return, such as [201, 409].",
       "additionalProperties": false,
-      "required": ["allowed_statuses"],
-      "properties": { "allowed_statuses": { "$ref": "#/$defs/statuses", "minItems": 1 } }
+      "anyOf": [{ "required": ["allowed_statuses"] }, { "required": ["no_server_errors"] }],
+      "properties": {
+        "allowed_statuses": { "$ref": "#/$defs/statuses", "minItems": 1 },
+        "no_server_errors": { "type": "boolean", "description": "Fail the burst if any copy gets a 5xx. A duplicate that arrives while the first request runs should get a 409." }
+      }
     }
   },
   "oneOf": [

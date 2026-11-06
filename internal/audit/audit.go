@@ -73,12 +73,17 @@ func Plan(base config.Config, bursts int) []Step {
 
 	lost := clean
 	lost.Scenario = "lost-response"
-	lost.RetryResponse = base.RetryResponse
+	lost.RetryResponse = withIDs(base.RetryResponse)
 
 	burst := clean
 	burst.Scenario = "concurrent-duplicates"
 	burst.Concurrency = base.Concurrency
 	burst.ConcurrentResponse = base.ConcurrentResponse
+	if burst.ConcurrentResponse == nil {
+		// A duplicate that arrives mid-request should get a 409, as in the
+		// IETF Idempotency-Key draft and Stripe's API, not a server error.
+		burst.ConcurrentResponse = &config.ConcurrentResponse{NoServerErrors: true}
+	}
 
 	steps := []Step{
 		{Scenario: lost.Scenario, Runs: 1, Config: lost},
@@ -107,12 +112,9 @@ func Plan(base config.Config, bursts int) []Step {
 
 	crash := clean
 	crash.Scenario = "crash-after-ack"
-	crash.RetryResponse = base.RetryResponse
-	if crash.RetryResponse == nil {
-		// An audit always retries after restart: it catches both a lost write
-		// and a service that forgets its keys when it restarts.
-		crash.RetryResponse = &config.RetryResponse{}
-	}
+	// An audit always retries after restart: it catches both a lost write
+	// and a service that forgets its keys when it restarts.
+	crash.RetryResponse = withIDs(base.RetryResponse)
 	step = Step{Scenario: crash.Scenario, Runs: 1, Config: crash}
 	if base.Service == nil {
 		step.SkipReason = `Add a "service" block so RecoveryLab can start, kill, and restart your process.`
@@ -128,6 +130,19 @@ func Plan(base config.Config, bursts int) []Step {
 		}
 	}
 	return steps
+}
+
+// withIDs asks a retry to return the same IDs as the original reply, unless
+// the scenario already names the values to compare. A retry that creates
+// nothing new but hands back a different ID still leaves the client with two
+// IDs for one thing.
+func withIDs(rule *config.RetryResponse) *config.RetryResponse {
+	out := config.RetryResponse{CompareIDs: true}
+	if rule != nil {
+		out = *rule
+		out.CompareIDs = out.CompareIDs || len(out.SameJSONPointers) == 0
+	}
+	return &out
 }
 
 func hasKey(headers map[string]string) bool {

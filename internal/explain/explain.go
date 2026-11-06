@@ -179,6 +179,16 @@ func concurrent(r engine.Report) Diagnosis {
 			Fixes:   []string{"Check expected_delta, then look for a lock or transaction that rolls back the winner when it collides with a loser."},
 		}
 	}
+	if cr := r.ConcurrentResponse; cr != nil && !cr.Passed && cr.NoServerErrors && len(cr.AllowedStatuses) == 0 {
+		return Diagnosis{
+			Summary: "The write happened once, but some copies got a server error: " + strings.Join(cr.Issues, "; ") + ".",
+			Cause:   "The losing requests most likely hit a unique-key error while the first one was still running, and it escaped as a 500. Clients usually retry a 500, which piles more load on the same race.",
+			Fixes: []string{
+				"Catch the duplicate-key error and answer 409 Conflict, which tells the client the request is still in progress and can be retried shortly.",
+				"Once the first request finishes, replay its stored result for the same key.",
+			},
+		}
+	}
 	if cr := r.ConcurrentResponse; cr != nil && !cr.Passed {
 		return Diagnosis{
 			Summary: "The write happened once, but some copies got a status your API doesn't promise: " + strings.Join(cr.Issues, "; ") + ".",

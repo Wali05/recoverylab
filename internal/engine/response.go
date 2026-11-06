@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -33,6 +34,15 @@ func checkRetryResponse(rule *config.RetryResponse, originalStatus int, original
 	}
 	if !allowed {
 		check.Issues = append(check.Issues, fmt.Sprintf("retry returned HTTP %d; expected %s", retryStatus, check.ExpectedStatus))
+	}
+	if rule != nil && rule.CompareIDs && len(check.SameJSONPointers) == 0 {
+		// Only a successful retry is expected to repeat the IDs: a declared
+		// 409 for duplicates naturally carries an error body instead.
+		check.SameJSONPointers = idPointers(originalBody)
+		check.AutoPointers = len(check.SameJSONPointers) > 0
+		if retryStatus < 200 || retryStatus >= 300 {
+			check.SameJSONPointers, check.AutoPointers = nil, false
+		}
 	}
 	if len(check.SameJSONPointers) > 0 {
 		original, err := responseJSON(originalBody)
@@ -61,6 +71,53 @@ func checkRetryResponse(rule *config.RetryResponse, originalStatus int, original
 	}
 	check.Passed = len(check.Issues) == 0
 	return check, nil
+}
+
+// idPointers finds fields in a reply that name the thing that was created:
+// "id", "uuid", and keys ending in "_id" or "Id", at the top level or one
+// object down (as in {"data": {"id": ...}}). Fields that are meant to differ
+// on every request, such as request_id or traceId, are left out.
+func idPointers(body []byte) []string {
+	root, err := responseJSON(body)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	var walk func(node any, prefix string, depth int)
+	walk = func(node any, prefix string, depth int) {
+		m, ok := node.(map[string]any)
+		if !ok || depth > 1 {
+			return
+		}
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			pointer := prefix + "/" + strings.ReplaceAll(strings.ReplaceAll(k, "~", "~0"), "/", "~1")
+			switch m[k].(type) {
+			case string, json.Number:
+				if isIDField(k) && len(out) < 8 {
+					out = append(out, pointer)
+				}
+			case map[string]any:
+				walk(m[k], pointer, depth+1)
+			}
+		}
+	}
+	walk(root, "", 0)
+	return out
+}
+
+func isIDField(name string) bool {
+	lower := strings.ToLower(name)
+	for _, perRequest := range []string{"request", "trace", "span", "correlation", "session", "idempotency", "nonce", "etag"} {
+		if strings.Contains(lower, perRequest) {
+			return false
+		}
+	}
+	return lower == "id" || lower == "uuid" || strings.HasSuffix(lower, "_id") || strings.HasSuffix(name, "Id") || strings.HasSuffix(name, "ID")
 }
 
 func responseJSON(data []byte) (any, error) {

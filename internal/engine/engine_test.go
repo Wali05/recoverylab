@@ -553,3 +553,100 @@ func TestObservationRejectsDuplicateKeys(t *testing.T) {
 		t.Fatal("duplicate JSON keys were accepted as a reliable observation")
 	}
 }
+
+func TestIDPointersSkipPerRequestFields(t *testing.T) {
+	got := idPointers([]byte(`{"id":7,"request_id":"r1","traceId":"t","order":{"orderId":"o1","total":3},"data":{"meta":{"uuid":"deep"}},"items":[{"id":1}],"customer_id":null}`))
+	want := []string{"/id", "/order/orderId"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if idPointers([]byte("plain text")) != nil {
+		t.Fatal("non-JSON reply produced pointers")
+	}
+}
+
+func TestCompareIDsCatchesReplayWithNewID(t *testing.T) {
+	for _, item := range []struct{ mode, want string }{{"correct", "PASS"}, {"replay-bug", "VIOLATION"}} {
+		t.Run(item.mode, func(t *testing.T) {
+			handler, err := fixture.New(item.mode, filepath.Join(t.TempDir(), "journal.jsonl"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(handler)
+			defer server.Close()
+			c := scenario(server.URL, "lost-response", nil)
+			c.RetryResponse = &config.RetryResponse{CompareIDs: true}
+			r := Run(context.Background(), c)
+			if r.Status != item.want || r.RetryResponse == nil || !r.RetryResponse.AutoPointers || strings.Join(r.RetryResponse.SameJSONPointers, ",") != "/operation_id" {
+				t.Fatalf("unexpected report: %+v", r)
+			}
+		})
+	}
+}
+
+func TestCompareIDsIgnoresRequestIDsAndDeclaredConflicts(t *testing.T) {
+	var mu sync.Mutex
+	seen := map[string]bool{}
+	conflict := false
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.URL.Path == "/state" {
+			_ = json.NewEncoder(w).Encode(map[string]int{"count": len(seen)})
+			return
+		}
+		requests++
+		key := r.Header.Get("Idempotency-Key")
+		if seen[key] && conflict {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":"duplicate"}`))
+			return
+		}
+		seen[key] = true
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "ord-" + key, "request_id": requests})
+	}))
+	defer server.Close()
+	c := scenario(server.URL, "lost-response", nil)
+	c.RetryResponse = &config.RetryResponse{CompareIDs: true}
+	if r := Run(context.Background(), c); r.Status != "PASS" || r.RetryResponse == nil || strings.Join(r.RetryResponse.SameJSONPointers, ",") != "/id" {
+		t.Fatalf("a changing request_id must not fail the retry: %+v", r)
+	}
+	mu.Lock()
+	conflict = true
+	mu.Unlock()
+	c.RetryResponse.AllowedStatuses = []int{http.StatusConflict}
+	if r := Run(context.Background(), c); r.Status != "PASS" || len(r.RetryResponse.SameJSONPointers) != 0 {
+		t.Fatalf("a declared 409 has no IDs to compare: %+v", r)
+	}
+}
+
+func TestNoServerErrorsFailsAConcurrentBurst(t *testing.T) {
+	var mu sync.Mutex
+	seen := map[string]bool{}
+	count := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.URL.Path == "/state" {
+			_ = json.NewEncoder(w).Encode(map[string]int{"count": count})
+			return
+		}
+		if key := r.Header.Get("Idempotency-Key"); seen[key] {
+			w.WriteHeader(http.StatusInternalServerError) // An unhandled unique-key error.
+			return
+		} else {
+			seen[key] = true
+		}
+		count++
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+	c := scenario(server.URL, "concurrent-duplicates", nil)
+	c.Concurrency = 6
+	c.ConcurrentResponse = &config.ConcurrentResponse{NoServerErrors: true}
+	r := Run(context.Background(), c)
+	if r.Status != "VIOLATION" || r.Observed == nil || *r.Observed != 1 || !strings.Contains(r.Error, "HTTP 500 returned by 5") {
+		t.Fatalf("server errors under a burst should fail: %+v", r)
+	}
+}

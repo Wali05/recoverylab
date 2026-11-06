@@ -125,3 +125,23 @@ func TestCombineKeepsTheWorstStatus(t *testing.T) {
 		t.Fatalf("errors without violations: %+v", s)
 	}
 }
+
+func TestPlanTurnsOnResponseChecks(t *testing.T) {
+	steps := Plan(base("http://127.0.0.1:8080"), 1)
+	if r := steps[0].Config.RetryResponse; r == nil || !r.CompareIDs {
+		t.Errorf("lost-response should compare IDs: %+v", r)
+	}
+	if r := steps[1].Config.ConcurrentResponse; r == nil || !r.NoServerErrors {
+		t.Errorf("bursts should reject server errors: %+v", r)
+	}
+	declared := base("http://127.0.0.1:8080")
+	declared.RetryResponse = &config.RetryResponse{SameJSONPointers: []string{"/order_id"}}
+	declared.ConcurrentResponse = &config.ConcurrentResponse{AllowedStatuses: []int{201, 409, 500}}
+	steps = Plan(declared, 1)
+	if r := steps[0].Config.RetryResponse; r.CompareIDs || r.SameJSONPointers[0] != "/order_id" {
+		t.Errorf("declared pointers should win: %+v", r)
+	}
+	if r := steps[1].Config.ConcurrentResponse; r.NoServerErrors {
+		t.Errorf("a declared status list should win: %+v", r)
+	}
+}

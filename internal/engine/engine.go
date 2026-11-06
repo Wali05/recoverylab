@@ -43,12 +43,14 @@ type ResponseCheck struct {
 	RetryHTTPStatus    int      `json:"retry_http_status"`
 	ExpectedStatus     string   `json:"expected_status"`
 	SameJSONPointers   []string `json:"same_json_pointers,omitempty"`
+	AutoPointers       bool     `json:"auto_pointers,omitempty"`
 	Passed             bool     `json:"passed"`
 	Issues             []string `json:"issues,omitempty"`
 }
 
 type ConcurrentResponseCheck struct {
-	AllowedStatuses []int    `json:"allowed_statuses"`
+	AllowedStatuses []int    `json:"allowed_statuses,omitempty"`
+	NoServerErrors  bool     `json:"no_server_errors,omitempty"`
 	Passed          bool     `json:"passed"`
 	Issues          []string `json:"issues,omitempty"`
 }
@@ -280,16 +282,18 @@ func runConcurrent(ctx context.Context, request config.Request, workers int, res
 		for _, status := range responseRule.AllowedStatuses {
 			allowed[status] = true
 		}
-		check := ConcurrentResponseCheck{AllowedStatuses: append([]int(nil), responseRule.AllowedStatuses...), Passed: true}
+		check := ConcurrentResponseCheck{AllowedStatuses: append([]int(nil), responseRule.AllowedStatuses...), NoServerErrors: responseRule.NoServerErrors, Passed: true}
 		for _, code := range codes {
-			if !allowed[code] {
+			declared := len(allowed) > 0 && !allowed[code]
+			serverError := responseRule.NoServerErrors && code >= 500
+			if declared || serverError {
 				check.Issues = append(check.Issues, fmt.Sprintf("HTTP %d returned by %d concurrent copies", code, statuses[code]))
 			}
 		}
 		check.Passed = len(check.Issues) == 0
 		r.ConcurrentResponse = &check
 		if check.Passed {
-			r.event("response check", "all concurrent responses used declared HTTP statuses")
+			r.event("response check", "all concurrent responses used acceptable HTTP statuses")
 		} else {
 			r.event("response check", strings.Join(check.Issues, "; "))
 		}
@@ -298,7 +302,7 @@ func runConcurrent(ctx context.Context, request config.Request, workers int, res
 }
 
 func runLostResponse(ctx context.Context, request config.Request, responseRule *config.RetryResponse, r *Report) error {
-	captureResponse := responseRule != nil && len(responseRule.SameJSONPointers) > 0
+	captureResponse := capturesReply(responseRule)
 	proxy, err := newDropProxy(ctx, request, captureResponse)
 	if err != nil {
 		return fmt.Errorf("create fault proxy: %w", err)
@@ -345,7 +349,7 @@ func runLostResponse(ctx context.Context, request config.Request, responseRule *
 }
 
 func runCrashAfterAck(ctx context.Context, request config.Request, responseRule *config.RetryResponse, managed *process, observations []config.Observation, r *Report) error {
-	captureResponse := responseRule != nil && len(responseRule.SameJSONPointers) > 0
+	captureResponse := capturesReply(responseRule)
 	status, originalBody, err := sendWithBody(ctx, request, request.URL, captureResponse)
 	r.Attempts = append(r.Attempts, Attempt{Kind: "original", HTTPStatus: status, ClientError: errorString(err)})
 	if err != nil {
@@ -393,6 +397,10 @@ func runCrashAfterAck(ctx context.Context, request config.Request, responseRule 
 		}
 	}
 	return nil
+}
+
+func capturesReply(rule *config.RetryResponse) bool {
+	return rule != nil && (len(rule.SameJSONPointers) > 0 || rule.CompareIDs)
 }
 
 func errorString(err error) string {

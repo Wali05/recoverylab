@@ -163,7 +163,7 @@ func TestConcurrentResponseValidation(t *testing.T) {
 		statuses []int
 		want     string
 	}{
-		{"empty", nil, "1 to 16"},
+		{"empty", nil, "no_server_errors or 1 to 16"},
 		{"bad code", []int{700}, "HTTP codes"},
 		{"duplicate", []int{409, 409}, "distinct"},
 	} {

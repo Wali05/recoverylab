@@ -45,12 +45,19 @@ type Config struct {
 type RetryResponse struct {
 	AllowedStatuses  []int    `json:"allowed_statuses,omitempty"`
 	SameJSONPointers []string `json:"same_json_pointers,omitempty"`
+	// CompareIDs finds ID fields such as /id or /order_id in the original
+	// reply and requires a 2xx retry to return the same values. It is used
+	// only when SameJSONPointers is empty.
+	CompareIDs bool `json:"compare_ids,omitempty"`
 }
 
 // ConcurrentResponse checks the HTTP codes returned by an overlapping burst.
 // In-progress conflicts such as 409 may be listed when the API promises them.
 type ConcurrentResponse struct {
-	AllowedStatuses []int `json:"allowed_statuses"`
+	AllowedStatuses []int `json:"allowed_statuses,omitempty"`
+	// NoServerErrors fails a burst in which any copy gets a 5xx. A duplicate
+	// that arrives while the first request is running should get a 409.
+	NoServerErrors bool `json:"no_server_errors,omitempty"`
 }
 
 type Service struct {
@@ -248,8 +255,8 @@ func (c Config) Validate() error {
 		if c.Scenario != "concurrent-duplicates" {
 			return errors.New("concurrent_response only applies to concurrent-duplicates")
 		}
-		if len(c.ConcurrentResponse.AllowedStatuses) == 0 || len(c.ConcurrentResponse.AllowedStatuses) > 16 {
-			return errors.New("concurrent_response.allowed_statuses requires 1 to 16 HTTP codes")
+		if (len(c.ConcurrentResponse.AllowedStatuses) == 0 && !c.ConcurrentResponse.NoServerErrors) || len(c.ConcurrentResponse.AllowedStatuses) > 16 {
+			return errors.New("concurrent_response needs no_server_errors or 1 to 16 allowed_statuses")
 		}
 		seenStatuses := map[int]bool{}
 		for _, status := range c.ConcurrentResponse.AllowedStatuses {

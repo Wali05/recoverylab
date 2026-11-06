@@ -124,3 +124,12 @@ func TestDiagnosesRetryErrorAndSetupProblems(t *testing.T) {
 		}
 	}
 }
+
+func TestDiagnosesServerErrorsUnderConcurrency(t *testing.T) {
+	r := engine.Report{Status: "VIOLATION", Scenario: "concurrent-duplicates",
+		Checks:             []engine.StateCheck{{Name: "state", Expected: 1, Observed: i64(1)}},
+		ConcurrentResponse: &engine.ConcurrentResponseCheck{NoServerErrors: true, Issues: []string{"HTTP 500 returned by 15 concurrent copies"}}}
+	if d := Report(r); !strings.Contains(d.Summary, "server error") || !strings.Contains(d.Fixes[0], "409 Conflict") {
+		t.Fatalf("server errors: %+v", d)
+	}
+}
