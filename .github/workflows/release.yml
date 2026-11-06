@@ -61,14 +61,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The release page opens with this version's CHANGELOG.md section.
+          awk -v want="## ${TAG#v}" '$0 == want {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          if [[ -s notes.md ]]; then
+            notes=(--notes-file notes.md --generate-notes)
+          else
+            echo "::warning::CHANGELOG.md has no section for ${TAG#v}"
+            notes=(--generate-notes)
+          fi
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
             if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
               echo "$TAG already exists; push a new version instead" >&2
               exit 1
             fi
             gh release create "$TAG" dist/* \
-              --target "$GITHUB_SHA" --draft --title "RecoveryLab $TAG" --generate-notes
+              --target "$GITHUB_SHA" --draft --title "RecoveryLab $TAG" "${notes[@]}"
           else
             gh release create "$TAG" dist/* \
-              --verify-tag --draft --title "RecoveryLab $TAG" --generate-notes
+              --verify-tag --draft --title "RecoveryLab $TAG" "${notes[@]}"
           fi
