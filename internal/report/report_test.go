@@ -127,3 +127,56 @@ func TestBadge(t *testing.T) {
 		t.Fatalf("badge is not valid XML: %v", err)
 	}
 }
+
+func TestDiagramDrawsWhatTheRunRecorded(t *testing.T) {
+	a := sample()
+	run := a.Results[0].Reports[0]
+	run.FaultInjected = true
+	run.RetryResponse = &engine.ResponseCheck{OriginalHTTPStatus: 201, RetryHTTPStatus: 201, Passed: true}
+	svg := string(diagram(a, run))
+	for _, want := range []string{"<svg", "POST /orders", "HTTP 201", "reply lost on the way", "same request again", "state 0 → 2, expected 1", `aria-label="client sends POST /orders`} {
+		if !strings.Contains(svg, want) {
+			t.Errorf("lost-response diagram is missing %q", want)
+		}
+	}
+	if err := xml.Unmarshal([]byte(svg), new(struct{})); err != nil {
+		t.Fatalf("diagram is not well-formed: %v", err)
+	}
+
+	zero, one := int64(0), int64(1)
+	torn := engine.Report{Scenario: "crash-mid-request", Status: "VIOLATION", FaultInjected: true,
+		Attempts:   []engine.Attempt{{Kind: "original", ClientError: "EOF"}, {Kind: "retry", HTTPStatus: 200}},
+		Events:     []engine.Event{{Step: "recovery"}},
+		CrashPoint: &engine.CrashPointCheck{DelayMS: 0.36, Outcome: "partial"},
+		AfterRestartChecks: []engine.StateCheck{
+			{Name: "orders", Baseline: 0, Expected: 1, Observed: &one, Allowed: []int64{0, 1}},
+			{Name: `<b>charges</b>`, Baseline: 0, Expected: 1, Observed: &zero, Allowed: []int64{0, 1}}},
+		Checks: []engine.StateCheck{{Name: "orders", Baseline: 0, Expected: 1, Observed: &one}}}
+	svg = string(diagram(a, torn))
+	for _, want := range []string{"process killed", "0.4 ms after the request", "connection died, no reply", "restarted", "half-finished", "orders 0 → 1", "&lt;b&gt;charges&lt;/b&gt; 0 → 0"} {
+		if !strings.Contains(svg, want) {
+			t.Errorf("crash diagram is missing %q", want)
+		}
+	}
+	if strings.Contains(svg, "<b>") {
+		t.Error("a check name reached the page unescaped")
+	}
+	// An experiment that never sent anything has nothing to draw.
+	if got := diagram(a, engine.Report{Scenario: "lost-response", Status: "ERROR"}); got != "" {
+		t.Errorf("empty run drew %q", got)
+	}
+}
+
+func TestRunsTableShowsWhereEachKillLanded(t *testing.T) {
+	rows := runs(audit.Result{Reports: []engine.Report{
+		{Status: "PASS", CrashPoint: &engine.CrashPointCheck{DelayMS: 0, Outcome: "not-applied"}},
+		{Status: "PASS", CrashPoint: &engine.CrashPointCheck{DelayMS: 12.4, ReplyReceived: true, Outcome: "applied"}},
+		{Status: "ERROR", Error: "connection refused"},
+	}})
+	if len(rows) != 3 || rows[0].Detail != "killed 0 ms in, before any reply · nothing written" || rows[1].Detail != "killed 12 ms in, after the reply · write all there" || rows[2].Detail != "connection refused" {
+		t.Fatalf("rows: %+v", rows)
+	}
+	if runs(audit.Result{Reports: []engine.Report{{}}}) != nil {
+		t.Error("a single run needs no table")
+	}
+}

@@ -63,6 +63,28 @@ ol.timeline li { display: grid; grid-template-columns: 74px 110px 1fr; gap: 10px
 .t { font-family: var(--mono); color: var(--muted); font-size: 12px; padding-top: 2px; }
 .step { color: var(--muted); }
 .raw { font-family: var(--mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; overflow-wrap: anywhere; }
+table.runs { width: auto; }
+table.runs td { padding-right: 14px; }
+table.runs .pill { padding: 3px 6px; }
+.seq-wrap { overflow-x: auto; margin: 14px 0 6px; }
+svg.seq { display: block; width: 100%; min-width: 520px; max-width: 640px; height: auto; margin: 0 auto; }
+.sq-head { fill: var(--muted); font: 600 11px system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; }
+.sq-lane { stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 2 4; }
+.sq-arrow { stroke: var(--ink); stroke-width: 1.5; fill: none; }
+.sq-tip { fill: var(--ink); }
+.sq-cross { stroke: var(--ink); stroke-width: 2; stroke-linecap: round; fill: none; }
+.sq-text { fill: var(--ink); font: 12px var(--mono); }
+.sq-note { fill: var(--muted); font: 11.5px system-ui, sans-serif; }
+.sq-dot { fill: var(--ink); }
+.sq-mark { stroke: var(--panel); stroke-width: 2; stroke-linecap: round; fill: none; }
+.sq-ring { fill: var(--panel); stroke: var(--ink); stroke-width: 1.5; }
+.sq-pill { fill: var(--skip-bg); }
+.sq-arrow.good, .sq-cross.good { stroke: var(--pass); } .sq-tip.good, .sq-text.good, .sq-dot.good { fill: var(--pass); }
+.sq-arrow.bad, .sq-cross.bad { stroke: var(--bad); } .sq-tip.bad, .sq-text.bad, .sq-dot.bad { fill: var(--bad); }
+.sq-arrow.fault, .sq-cross.fault { stroke: var(--warn); } .sq-tip.fault, .sq-text.fault, .sq-dot.fault { fill: var(--warn); }
+.sq-text.muted { fill: var(--muted); }
+.sq-pill.good { fill: var(--pass-bg); } .sq-pill.bad { fill: var(--bad-bg); } .sq-pill.muted { fill: var(--skip-bg); }
+.sq-note.good, .sq-note.bad, .sq-note.fault { fill: var(--muted); }
 footer { color: var(--muted); font-size: 13px; margin-top: 28px; }
 footer p { margin: 4px 0; }
 @media (max-width: 560px) {
@@ -119,6 +141,7 @@ footer p { margin: 4px 0; }
 </body>
 </html>
 {{define "cards"}}
+{{$audit := .}}
 {{range .Results}}
 <section class="card {{lower .Status}}">
   <div class="card-head">
@@ -143,11 +166,12 @@ footer p { margin: 4px 0; }
   {{with pick .}}
   <details{{if ne .Status "PASS"}} open{{end}}>
     <summary>What RecoveryLab saw · run {{.RunID}} · {{.DurationMS}} ms</summary>
+    {{with diagram $audit .}}<div class="seq-wrap">{{.}}</div>{{end}}
     {{if or .Checks .AfterRestartChecks}}
     <table>
       <tr><th>Check</th><th>Before</th><th>Expected</th><th>Observed</th></tr>
       {{range .AfterRestartChecks}}{{if .Observed}}<tr><td>{{.Name}} <span class="note">after restart</span></td><td class="num">{{.Baseline}}</td><td class="num">{{wanted .}}</td><td class="num{{if not .Held}} bad{{end}}">{{deref .Observed}}</td></tr>{{end}}{{end}}
-      {{range .Checks}}{{if .Observed}}<tr><td>{{.Name}}</td><td class="num">{{.Baseline}}</td><td class="num">{{.Expected}}</td><td class="num{{if ne (deref .Observed) .Expected}} bad{{end}}">{{deref .Observed}}</td></tr>{{end}}{{end}}
+      {{range .Checks}}{{if .Observed}}<tr><td>{{.Name}}</td><td class="num">{{.Baseline}}</td><td class="num">{{.Expected}}</td><td class="num{{if not .Held}} bad{{end}}">{{deref .Observed}}</td></tr>{{end}}{{end}}
     </table>
     {{end}}
     {{with tally .Attempts}}<p class="note">Requests: {{range $i, $t := .}}{{if $i}}, {{end}}{{$t}}{{end}}</p>{{end}}
@@ -156,6 +180,14 @@ footer p { margin: 4px 0; }
       {{range .Events}}<li><span class="t">{{offset $start .At}}</span><span class="step">{{.Step}}</span><span>{{.Detail}}</span></li>{{end}}
     </ol>
     {{if .Error}}<div class="raw">{{.Error}}</div>{{end}}
+  </details>
+  {{end}}
+  {{with runs .}}
+  <details>
+    <summary>All {{len .}} runs</summary>
+    <table class="runs">
+      {{range .}}<tr><td class="num">{{.N}}</td><td><span class="pill {{lower .Status}}">{{mark .Status}}</span></td><td>{{.Detail}}</td></tr>{{end}}
+    </table>
   </details>
   {{end}}
   {{end}}

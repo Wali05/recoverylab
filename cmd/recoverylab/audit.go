@@ -86,11 +86,27 @@ func runAudit(ctx context.Context, args []string) int {
 		if text {
 			printAuditHeader(os.Stdout, s, p.base)
 		}
-		outcome := audit.Run(ctx, p.base, p.steps, func(r audit.Result) {
-			if text {
+		hooks := audit.Hooks{}
+		if text {
+			running := func(step audit.Step, done int) {
+				label := "… " + step.Title
+				if step.Runs > 1 {
+					label += fmt.Sprintf("  %d of %d", min(done+1, step.Runs), step.Runs)
+				}
+				s.progress(os.Stdout, label)
+			}
+			hooks.Start = func(step audit.Step) { running(step, 0) }
+			hooks.Tick = func(step audit.Step, done int) {
+				if done < step.Runs {
+					running(step, done)
+				}
+			}
+			hooks.Done = func(r audit.Result) {
+				s.clearProgress(os.Stdout)
 				printAuditLine(os.Stdout, s, r)
 			}
-		})
+		}
+		outcome := audit.RunWith(ctx, p.base, p.steps, hooks)
 		if text {
 			printAuditSummary(os.Stdout, s, outcome)
 		}

@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"syscall"
@@ -251,82 +250,6 @@ func freeAddress() (string, error) {
 	addr := l.Addr().String()
 	_ = l.Close()
 	return addr, nil
-}
-
-func demo(ctx context.Context, args []string) int {
-	if len(args) != 0 {
-		fmt.Fprintln(os.Stderr, "usage: recoverylab demo")
-		return 2
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
-	}
-	root, err := os.MkdirTemp("", "recoverylab-demo-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
-	}
-	defer os.RemoveAll(root)
-	cases := []struct{ mode, scenario, want string }{
-		{"correct", "lost-response", "PASS"},
-		{"duplicate-bug", "lost-response", "VIOLATION"},
-		{"correct", "concurrent-duplicates", "PASS"},
-		{"race-bug", "concurrent-duplicates", "VIOLATION"},
-		{"correct", "crash-after-ack", "PASS"},
-		{"early-ack-bug", "crash-after-ack", "VIOLATION"},
-	}
-	allGood := true
-	reports := make([]engine.Report, len(cases))
-	for i, item := range cases {
-		addr, err := freeAddress()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 2
-		}
-		base := "http://" + addr
-		caseDir := filepath.Join(root, fmt.Sprintf("case-%d", i))
-		delta := int64(1)
-		c := config.Config{
-			Name: item.mode + "/" + item.scenario, Scenario: item.scenario, Timeout: "15s", Concurrency: 16,
-			Service: &config.Service{Command: []string{exe, "fixture", "--listen", addr, "--mode", item.mode, "--journal", filepath.Join(caseDir, "journal.jsonl")}, ReadyURL: base + "/health", StartupTimeout: "5s"},
-			Request: config.Request{Method: "POST", URL: base + "/operations", Headers: map[string]string{"Idempotency-Key": "recoverylab-{{run_id}}"}, Body: json.RawMessage(`{"amount":1}`)},
-			Observe: config.Observation{URL: base + "/state", Pointer: "/count", ExpectedDelta: &delta},
-		}
-		if item.scenario != "concurrent-duplicates" {
-			c.Concurrency = 0
-		}
-		r := engine.Run(ctx, c)
-		reports[i] = r
-		if r.Status != item.want {
-			allGood = false
-			fmt.Fprintf(os.Stderr, "%s: got %s, expected %s\n", r.Name, r.Status, item.want)
-			if r.Error != "" {
-				fmt.Fprintln(os.Stderr, "  ", r.Error)
-			}
-		}
-	}
-	fmt.Println("A write succeeds, its reply vanishes, and the client retries. (observed/expected)")
-	fmt.Printf("Lost response: correct %s | duplicate bug %s\n", demoResult(reports[0]), demoResult(reports[1]))
-	fmt.Printf("16 requests at once: correct %s | race bug %s\n", demoResult(reports[2]), demoResult(reports[3]))
-	fmt.Printf("Crash after 2xx: correct %s | early ack bug %s\n", demoResult(reports[4]), demoResult(reports[5]))
-	if !allGood {
-		fmt.Fprintln(os.Stderr, "Demo failed: at least one fixture missed its expected outcome.")
-		return 1
-	}
-	fmt.Println("Demo passed: 3 healthy cases held; 3 injected defects were detected.")
-	fmt.Println("\nTry it on your own API (start it first):")
-	fmt.Println("  recoverylab init --url http://127.0.0.1:8080/orders --state http://127.0.0.1:8080/orders --body '{\"sku\":\"book\"}'")
-	fmt.Println("  recoverylab audit recoverylab.json")
-	return 0
-}
-
-func demoResult(r engine.Report) string {
-	if r.Observed == nil || r.Expected == nil {
-		return r.Status
-	}
-	return fmt.Sprintf("%s %d/%d", r.Status, *r.Observed, *r.Expected)
 }
 
 func serveFixture(args []string) int {

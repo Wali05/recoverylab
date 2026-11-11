@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/Wali05/recoverylab/internal/audit"
@@ -23,7 +24,9 @@ var tmpl = template.Must(template.New("report").Funcs(template.FuncMap{
 	"mark": func(s string) string {
 		return map[string]string{"PASS": "✓", "VIOLATION": "✗", "ERROR": "!", "SKIPPED": "–"}[s]
 	},
-	"pick": pick,
+	"pick":    pick,
+	"diagram": diagram,
+	"runs":    runs,
 	"wanted": func(c engine.StateCheck) string {
 		if len(c.Allowed) > 0 && c.Baseline != c.Expected {
 			return fmt.Sprintf("%d or %d", c.Baseline, c.Expected)
@@ -55,6 +58,52 @@ func HTML(w io.Writer, audits []audit.Report, version string) error {
 		Version:   version,
 		Generated: time.Now().UTC().Format("2 Jan 2006 15:04 UTC"),
 	})
+}
+
+// runRow is one line of the per-run table shown when a check ran more than
+// once: every burst, or every kill point.
+type runRow struct {
+	N      int
+	Status string
+	Detail string
+}
+
+// runs lists what each repeat of a check did. For a crash sweep that is
+// where each kill landed, which is the only way to see how much of the
+// request the sweep really covered.
+func runs(r audit.Result) []runRow {
+	if len(r.Reports) < 2 {
+		return nil
+	}
+	rows := make([]runRow, len(r.Reports))
+	for i, run := range r.Reports {
+		row := runRow{N: i + 1, Status: run.Status}
+		switch {
+		case run.CrashPoint != nil:
+			cp := run.CrashPoint
+			landed := "before any reply"
+			if cp.ReplyReceived {
+				landed = "after the reply"
+			}
+			left := map[string]string{"applied": "write all there", "not-applied": "nothing written", "partial": "write half-finished", "unexpected": "state neither before nor after"}[cp.Outcome]
+			row.Detail = fmt.Sprintf("killed %s ms in, %s · %s", trimFloat(cp.DelayMS), landed, left)
+		case run.Status == "ERROR":
+			row.Detail = run.Error
+		default:
+			var parts []string
+			if t := tally(run.Attempts); len(t) > 0 {
+				parts = append(parts, strings.Join(t, ", "))
+			}
+			for _, c := range run.Checks {
+				if c.Observed != nil {
+					parts = append(parts, fmt.Sprintf("%s %d → %d", c.Name, c.Baseline, *c.Observed))
+				}
+			}
+			row.Detail = strings.Join(parts, " · ")
+		}
+		rows[i] = row
+	}
+	return rows
 }
 
 // pick shows the run that best explains a result, the same one the

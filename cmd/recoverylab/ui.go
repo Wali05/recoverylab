@@ -14,25 +14,43 @@ import (
 
 // style adds ANSI color only when stdout is an interactive terminal. NO_COLOR
 // (https://no-color.org) always wins; FORCE_COLOR is handy for recordings.
-type style struct{ on bool }
+type style struct {
+	on bool
+	// live is true only on a real terminal, where a line can be redrawn in
+	// place. Color can be forced into a file; progress never is.
+	live bool
+}
 
 func newStyle(f *os.File) style {
-	if os.Getenv("NO_COLOR") != "" {
-		return style{}
-	}
-	if os.Getenv("FORCE_COLOR") != "" {
-		return style{on: true}
-	}
 	info, err := f.Stat()
-	if err != nil || info.Mode()&os.ModeCharDevice == 0 || os.Getenv("TERM") == "dumb" {
-		return style{}
-	}
+	terminal := err == nil && info.Mode()&os.ModeCharDevice != 0 && os.Getenv("TERM") != "dumb"
 	// Old Windows consoles print escape codes literally. Windows Terminal and
 	// VS Code set these variables and handle them fine.
 	if runtime.GOOS == "windows" && os.Getenv("WT_SESSION") == "" && os.Getenv("TERM_PROGRAM") == "" {
-		return style{}
+		terminal = false
 	}
-	return style{on: true}
+	s := style{on: terminal, live: terminal}
+	if os.Getenv("NO_COLOR") != "" {
+		s.on = false
+	} else if os.Getenv("FORCE_COLOR") != "" {
+		s.on = true
+	}
+	return s
+}
+
+// progress shows what is running on a line that the result then replaces.
+// It prints nothing when output isn't a terminal.
+func (s style) progress(w io.Writer, text string) {
+	if s.live {
+		fmt.Fprintf(w, "\r\x1b[2K  %s", s.dim(text))
+	}
+}
+
+// clearProgress wipes the progress line before real output is written.
+func (s style) clearProgress(w io.Writer) {
+	if s.live {
+		fmt.Fprint(w, "\r\x1b[2K")
+	}
 }
 
 func (s style) wrap(code, text string) string {
