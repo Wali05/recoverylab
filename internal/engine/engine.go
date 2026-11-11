@@ -427,8 +427,11 @@ func sendWithBody(ctx context.Context, req config.Request, target string, captur
 	if err != nil {
 		return 0, nil, err
 	}
-	for k, v := range req.Headers {
-		httpReq.Header.Set(k, v)
+	setHeaders(httpReq, req.Headers)
+	if body != nil && httpReq.Header.Get("Content-Type") == "" {
+		// Bodies are always JSON. Most frameworks ignore one that arrives
+		// without a content type, which would look like a failed write.
+		httpReq.Header.Set("Content-Type", "application/json")
 	}
 	client := localClient()
 	resp, err := client.Do(httpReq)
@@ -452,6 +455,19 @@ func sendWithBody(ctx context.Context, req config.Request, target string, captur
 	return resp.StatusCode, nil, nil
 }
 
+// setHeaders applies scenario headers. Go sends the Host header from the
+// request's Host field and ignores one set in the header map, so a scenario
+// that routes by virtual host needs it copied across.
+func setHeaders(req *http.Request, headers map[string]string) {
+	for k, v := range headers {
+		if strings.EqualFold(k, "Host") {
+			req.Host = v
+			continue
+		}
+		req.Header.Set(k, v)
+	}
+}
+
 // Each operation gets a direct, fresh connection. This keeps proxy settings
 // and automatic retries on pooled connections out of the experiment.
 func localClient() *http.Client {
@@ -469,9 +485,7 @@ func observe(ctx context.Context, o config.Observation) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	for k, v := range o.Headers {
-		req.Header.Set(k, v)
-	}
+	setHeaders(req, o.Headers)
 	client := localClient()
 	resp, err := client.Do(req)
 	if err != nil {

@@ -3,14 +3,18 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Wali05/recoverylab/internal/audit"
@@ -24,37 +28,53 @@ var version = "dev"
 
 func main() { os.Exit(run(os.Args[1:])) }
 
+// interrupted is the conventional exit code after Ctrl-C (128 + SIGINT).
+const interrupted = 130
+
 func run(args []string) int {
 	if len(args) == 0 {
-		usage()
+		usage(os.Stderr)
 		return 2
 	}
+	// Ctrl-C cancels the experiment in progress, which also stops a managed
+	// service. Without this a killed run could leave the service running.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	switch args[0] {
 	case "help", "--help", "-h":
-		usage()
+		usage(os.Stdout)
 		return 0
 	case "version", "--version":
 		fmt.Println("RecoveryLab", currentVersion())
 		return 0
 	case "run":
-		return runFile(args[1:])
+		return runFile(ctx, args[1:])
 	case "init":
 		return initScenario(args[1:])
 	case "discover":
 		return discover(args[1:])
 	case "audit":
-		return runAudit(args[1:])
+		return runAudit(ctx, args[1:])
 	case "validate":
 		return validate(args[1:])
 	case "demo":
-		return demo(args[1:])
+		return demo(ctx, args[1:])
 	case "fixture":
 		return serveFixture(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", args[0])
-		usage()
+		usage(os.Stderr)
 		return 2
 	}
+}
+
+// flagExit turns a flag parsing result into an exit code: asking for --help
+// is not an error.
+func flagExit(err error) int {
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
+	}
+	return 2
 }
 
 func currentVersion() string {
@@ -67,34 +87,42 @@ func currentVersion() string {
 	return version
 }
 
-func usage() {
-	fmt.Println(`RecoveryLab — test whether local HTTP services preserve state through failures
+func usage(w io.Writer) {
+	fmt.Fprint(w, `RecoveryLab — test whether local HTTP services preserve state through failures
 
 Usage:
   recoverylab demo
   recoverylab discover --base http://127.0.0.1:8000 [--openapi URL|FILE] [--out DIR]
   recoverylab init --url WRITE_URL --state STATE_URL [--body JSON] [--out FILE]
   recoverylab audit [--bursts N] [--format text|json] [--output AUDIT.json] SCENARIO.json|DIR ...
-  recoverylab validate SCENARIO.json
   recoverylab run [--format text|json] [--output REPORT.json] [--repeat N] SCENARIO.json
-
-Both audit and run also take --junit FILE.xml for CI, --html FILE.html for a
-report you can share, --markdown FILE.md for a GitHub job summary, and
---badge FILE.svg for a README badge.
+  recoverylab validate SCENARIO.json
+  recoverylab fixture [--mode MODE] [--listen 127.0.0.1:8080] [--journal FILE]
   recoverylab version
 
-Scenarios:
-  lost-response    Hide an acknowledged response, retry, and verify state.
+Commands:
+  demo      Start working and deliberately buggy services and test them all.
+  discover  Read your OpenAPI document and write a scenario per write endpoint.
+  init      Look at your state endpoint and write a scenario for one endpoint.
+  audit     Run every failure that applies to a request and print a report card.
+  run       Run only the scenario named in the file.
+  validate  Check a scenario file without sending anything.
+  fixture   Serve the small test service the demo uses.
+
+Failures:
+  lost-response          Hide an acknowledged response, retry, and verify state.
   concurrent-duplicates  Send 2–64 copies at once and verify state.
-  crash-after-ack  Kill and restart a managed service; optionally retry afterward.
-  key-reuse        Change the body, reuse its key, and check rejection and state.
+  key-reuse              Change the body, reuse its key, and check rejection and state.
+  crash-after-ack        Kill and restart a managed service; optionally retry afterward.
 
-"discover" reads your OpenAPI document and writes a scenario per write endpoint.
-"init" looks at your state endpoint and writes a scenario you can run straight away.
-"audit" runs every scenario that applies to one request and prints a report card.
+Reports:
+  audit and run also take --html FILE.html for a report you can share,
+  --junit FILE.xml for CI, --markdown FILE.md for a GitHub job summary, and
+  --badge FILE.svg for a README badge.
 
-Run "recoverylab demo" for a self-contained example with working and buggy services.
-See examples/ and README.md to test your own local service.`)
+Exit codes: 0 every check held, 1 a check failed, 2 the experiment couldn't finish.
+Run "recoverylab COMMAND --help" for a command's flags.
+`)
 }
 
 func validate(args []string) int {
@@ -111,7 +139,7 @@ func validate(args []string) int {
 	return 0
 }
 
-func runFile(args []string) int {
+func runFile(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	format := fs.String("format", "text", "text or json")
 	output := fs.String("output", "", "write JSON report to a file")
@@ -121,7 +149,7 @@ func runFile(args []string) int {
 	markdown := fs.String("markdown", "", "write a Markdown summary, such as $GITHUB_STEP_SUMMARY")
 	badge := fs.String("badge", "", "write an SVG badge for a README")
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return flagExit(err)
 	}
 	if fs.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: recoverylab run [flags] SCENARIO.json")
@@ -141,8 +169,12 @@ func runFile(args []string) int {
 		return 2
 	}
 	reports := make([]engine.Report, 0, *repeat)
-	for i := 0; i < *repeat; i++ {
-		reports = append(reports, engine.Run(context.Background(), c))
+	for i := 0; i < *repeat && ctx.Err() == nil; i++ {
+		reports = append(reports, engine.Run(ctx, c))
+	}
+	if ctx.Err() != nil {
+		fmt.Fprintln(os.Stderr, "Interrupted. Any managed service was stopped.")
+		return interrupted
 	}
 	batch := summarize(reports)
 	var payload any = reports[0]
@@ -220,7 +252,7 @@ func freeAddress() (string, error) {
 	return addr, nil
 }
 
-func demo(args []string) int {
+func demo(ctx context.Context, args []string) int {
 	if len(args) != 0 {
 		fmt.Fprintln(os.Stderr, "usage: recoverylab demo")
 		return 2
@@ -264,7 +296,7 @@ func demo(args []string) int {
 		if item.scenario != "concurrent-duplicates" {
 			c.Concurrency = 0
 		}
-		r := engine.Run(context.Background(), c)
+		r := engine.Run(ctx, c)
 		reports[i] = r
 		if r.Status != item.want {
 			allGood = false
@@ -302,7 +334,7 @@ func serveFixture(args []string) int {
 	mode := fs.String("mode", "correct", "correct, duplicate-bug, race-bug, early-ack-bug, replay-bug, or repair-after-crash-bug")
 	journal := fs.String("journal", "journal.jsonl", "persistent journal path")
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return flagExit(err)
 	}
 	if fs.NArg() != 0 {
 		return 2

@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Wali05/recoverylab/internal/config"
 	"github.com/Wali05/recoverylab/internal/strictjson"
@@ -64,7 +65,7 @@ func initScenario(args []string) int {
 	headers := headerFlags{}
 	fs.Var(headers, "header", `request header, such as "Authorization: Bearer token" (repeatable)`)
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return flagExit(err)
 	}
 	if fs.NArg() != 0 || *target == "" || *state == "" {
 		fmt.Fprintln(os.Stderr, "usage: recoverylab init --url WRITE_URL --state STATE_URL [--method POST] [--body JSON] [--header 'K: V'] [--pointer /count] [--out FILE]")
@@ -108,7 +109,13 @@ func initScenario(args []string) int {
 	}
 
 	s := newStyle(os.Stdout)
-	root, err := fetchJSON(*state, headers)
+	// The file keeps {{env:NAME}}; the live read needs the real value.
+	live, err := config.ExpandHeaders(headers)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	root, err := fetchJSON(*state, live)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "couldn't read %s: %v\n", *state, err)
 		fmt.Fprintln(os.Stderr, "Start your service first; init looks at the state endpoint to find a counter.")
@@ -208,6 +215,10 @@ func fetch(url string, headers map[string]string, limit int64) ([]byte, error) {
 	}
 	req.Header.Set("Accept", "application/json")
 	for k, v := range headers {
+		if strings.EqualFold(k, "Host") {
+			req.Host = v // Go ignores a Host entry in the header map.
+			continue
+		}
 		req.Header.Set(k, v)
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -256,7 +267,7 @@ func candidates(node any, pointer string, depth int) []candidate {
 	if depth > 4 {
 		return nil
 	}
-	name := strings.ToLower(pointer[strings.LastIndex(pointer, "/")+1:])
+	name := pointer[strings.LastIndex(pointer, "/")+1:]
 	switch v := node.(type) {
 	case []any:
 		rank := 2
@@ -269,18 +280,7 @@ func candidates(node any, pointer string, depth int) []candidate {
 		if err != nil {
 			return nil
 		}
-		rank := 1
-		for _, hint := range []string{"count", "total", "size", "num", "length"} {
-			if strings.Contains(name, hint) {
-				rank = 4
-			}
-		}
-		for _, skip := range []string{"page", "limit", "offset", "per_page", "version", "port", "uptime", "status", "code", "timestamp"} {
-			if name == skip {
-				rank = 0
-			}
-		}
-		return []candidate{{pointer: pointer, measure: config.MeasureValue, value: n, rank: rank}}
+		return []candidate{{pointer: pointer, measure: config.MeasureValue, value: n, rank: counterRank(name)}}
 	case map[string]any:
 		keys := make([]string, 0, len(v))
 		for k := range v {
@@ -295,4 +295,75 @@ func candidates(node any, pointer string, depth int) []candidate {
 		return out
 	}
 	return nil
+}
+
+// counterRank scores how much a field name sounds like "how many exist".
+// It reads whole words, so order_count and totalElements score high while
+// account_number and totalPages don't. A list scores 2 or 3.
+//
+//	5  a total: total, totalElements, total_count
+//	4  a count: count, orderCount, num_orders, queue_size
+//	1  some other number
+//	0  paging and bookkeeping: page, totalPages, page_size, limit, version
+func counterRank(name string) int {
+	words := nameWords(name)
+	has := func(want ...string) bool {
+		for _, w := range words {
+			for _, x := range want {
+				if w == x {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if has("page", "pages") {
+		return 0
+	}
+	if len(words) == 1 && has("limit", "offset", "version", "port", "uptime", "status", "code", "timestamp", "id") {
+		return 0
+	}
+	// A bare "size" or "number" is the page size or page number in Spring's
+	// Page and similar envelopes.
+	if len(words) == 1 && has("size", "number") {
+		return 1
+	}
+	if has("total") {
+		return 5
+	}
+	if has("count", "num", "size", "length") {
+		return 4
+	}
+	for i, w := range words {
+		if w == "number" && i+1 < len(words) && words[i+1] == "of" {
+			return 4
+		}
+	}
+	return 1
+}
+
+// nameWords splits snake_case, kebab-case, and camelCase into lower-case
+// words: "totalElements" and "total_elements" both give [total elements].
+func nameWords(name string) []string {
+	var words []string
+	var cur []rune
+	flush := func() {
+		if len(cur) > 0 {
+			words = append(words, strings.ToLower(string(cur)))
+			cur = cur[:0]
+		}
+	}
+	runes := []rune(name)
+	for i, r := range runes {
+		switch {
+		case !unicode.IsLetter(r) && !unicode.IsDigit(r):
+			flush()
+			continue
+		case unicode.IsUpper(r) && i > 0 && (unicode.IsLower(runes[i-1]) || (i+1 < len(runes) && unicode.IsLower(runes[i+1]) && unicode.IsUpper(runes[i-1]))):
+			flush()
+		}
+		cur = append(cur, r)
+	}
+	flush()
+	return words
 }

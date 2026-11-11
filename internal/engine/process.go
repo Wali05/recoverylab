@@ -86,6 +86,10 @@ func (p *process) Start(parent context.Context) error {
 	logs := &tailBuffer{}
 	cmd.Stdout = logs
 	cmd.Stderr = logs
+	ownGroup(cmd)
+	// A grandchild that outlives the kill would keep the output pipe open
+	// and Wait would never return. Give up on its output instead.
+	cmd.WaitDelay = 2 * time.Second
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -124,7 +128,8 @@ func (p *process) Start(parent context.Context) error {
 	}
 }
 
-// Crash requires the managed process to still be alive, then forcibly kills it.
+// Crash requires the managed process to still be alive, then forcibly kills
+// it together with any processes it started.
 func (p *process) Crash() error {
 	if p.cmd == nil {
 		return fmt.Errorf("managed service is not running")
@@ -136,7 +141,7 @@ func (p *process) Crash() error {
 		return fmt.Errorf("managed service exited before the fault could be injected")
 	default:
 	}
-	if err := cmd.Process.Kill(); err != nil {
+	if err := killTree(cmd); err != nil {
 		return fmt.Errorf("kill managed service: %w", err)
 	}
 	p.cmd = nil
@@ -156,10 +161,12 @@ func (p *process) Stop() error {
 	p.cmd = nil
 	select {
 	case <-done:
+		// The process is gone, but a wrapper may have left its server behind.
+		_ = killTree(cmd)
 		return nil
 	default:
 	}
-	if err := cmd.Process.Kill(); err != nil {
+	if err := killTree(cmd); err != nil {
 		select {
 		case <-done:
 			return nil

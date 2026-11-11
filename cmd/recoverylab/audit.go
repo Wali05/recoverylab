@@ -16,7 +16,7 @@ import (
 	"github.com/Wali05/recoverylab/internal/report"
 )
 
-func runAudit(args []string) int {
+func runAudit(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("audit", flag.ContinueOnError)
 	format := fs.String("format", "text", "text or json")
 	output := fs.String("output", "", "write the JSON audit to a file")
@@ -26,7 +26,7 @@ func runAudit(args []string) int {
 	markdown := fs.String("markdown", "", "write a Markdown summary, such as $GITHUB_STEP_SUMMARY")
 	badge := fs.String("badge", "", "write an SVG badge for a README")
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return flagExit(err)
 	}
 	if fs.NArg() == 0 {
 		fmt.Fprintln(os.Stderr, "usage: recoverylab audit [--bursts N] [--format text|json] [--output AUDIT.json] SCENARIO.json|DIR ...")
@@ -81,7 +81,7 @@ func runAudit(args []string) int {
 		if text {
 			printAuditHeader(os.Stdout, s, p.base)
 		}
-		outcome := audit.Run(context.Background(), p.base, p.steps, func(r audit.Result) {
+		outcome := audit.Run(ctx, p.base, p.steps, func(r audit.Result) {
 			if text {
 				printAuditLine(os.Stdout, s, r)
 			}
@@ -90,6 +90,10 @@ func runAudit(args []string) int {
 			printAuditSummary(os.Stdout, s, outcome)
 		}
 		outcomes = append(outcomes, outcome)
+		if ctx.Err() != nil {
+			fmt.Fprintln(os.Stderr, "Interrupted. Any managed service was stopped.")
+			return interrupted
+		}
 	}
 	suite := audit.Combine(outcomes)
 	var payload any = suite

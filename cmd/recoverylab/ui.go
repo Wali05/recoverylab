@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Wali05/recoverylab/internal/engine"
 	"github.com/Wali05/recoverylab/internal/explain"
@@ -70,7 +71,9 @@ func wrapText(text string, width, indent int) string {
 	var b strings.Builder
 	line := 0
 	for i, w := range words {
-		if i > 0 && line+1+len(w) > width {
+		// Count characters, not bytes, or "→" and "…" wrap three columns early.
+		n := utf8.RuneCountInString(w)
+		if i > 0 && line+1+n > width {
 			b.WriteString("\n" + strings.Repeat(" ", indent))
 			line = 0
 		} else if i > 0 {
@@ -78,7 +81,7 @@ func wrapText(text string, width, indent int) string {
 			line++
 		}
 		b.WriteString(w)
-		line += len(w)
+		line += n
 	}
 	return b.String()
 }

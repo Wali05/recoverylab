@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -303,7 +304,12 @@ func (d *Document) example(node any, depth int) any {
 		}
 		out := map[string]any{}
 		for name := range want {
-			prop, _ := d.resolve(props[name]).(map[string]any)
+			// A name that is required here but declared elsewhere (another
+			// allOf branch, say) has no schema to build a value from.
+			prop, ok := d.resolve(props[name]).(map[string]any)
+			if !ok {
+				continue
+			}
 			if ro, _ := prop["readOnly"].(bool); ro {
 				continue
 			}
@@ -313,7 +319,7 @@ func (d *Document) example(node any, depth int) any {
 	case "array":
 		n := 1
 		if min, ok := number(s["minItems"]); ok && min > 1 {
-			n = int(min)
+			n = int(math.Min(min, maxExampleItems))
 		}
 		items := make([]any, n)
 		for i := range items {
@@ -321,25 +327,67 @@ func (d *Document) example(node any, depth int) any {
 		}
 		return items
 	case "integer", "number":
-		v := 1.0
-		if min, ok := number(s["minimum"]); ok {
-			v = min
-			if ex, _ := s["exclusiveMinimum"].(bool); ex {
-				v++
-			}
-		} else if max, ok := number(s["maximum"]); ok && max < 1 {
-			v = max
-		}
-		if typ == "integer" {
-			return int64(v)
-		}
-		return v
+		return numberExample(s, typ == "integer")
 	case "boolean":
 		return true
 	case "string":
 		return stringExample(s)
 	}
 	return nil
+}
+
+// A document is input like any other: limits it declares must not decide
+// how much memory an example takes.
+const (
+	maxExampleItems  = 16
+	maxExampleLength = 4096
+)
+
+// numberExample picks a value inside the schema's bounds: the minimum when
+// there is one, otherwise 1, pulled down to the maximum if 1 is too big.
+// Exclusive bounds come as a flag next to minimum in OpenAPI 3.0 and as a
+// number of their own in 3.1.
+func numberExample(s map[string]any, integer bool) any {
+	step := 1.0
+	lo, hasLo := number(s["minimum"])
+	if flag, _ := s["exclusiveMinimum"].(bool); flag && hasLo {
+		lo += step
+	} else if ex, ok := number(s["exclusiveMinimum"]); ok && (!hasLo || ex >= lo) {
+		lo, hasLo = ex+step, true
+	}
+	hi, hasHi := number(s["maximum"])
+	if flag, _ := s["exclusiveMaximum"].(bool); flag && hasHi {
+		hi -= step
+	} else if ex, ok := number(s["exclusiveMaximum"]); ok && (!hasHi || ex <= hi) {
+		hi, hasHi = ex-step, true
+	}
+	v := 1.0
+	if hasLo {
+		v = lo
+	}
+	if hasHi && v > hi {
+		v = hi
+	}
+	if m, ok := number(s["multipleOf"]); ok && m > 0 {
+		v = math.Ceil(v/m) * m
+		if hasHi && v > hi {
+			v = math.Floor(hi/m) * m
+		}
+	}
+	if integer {
+		v = math.Ceil(v)
+		if hasHi && v > hi {
+			v = math.Floor(hi)
+		}
+		if v > math.MaxInt64/2 || v < math.MinInt64/2 || math.IsNaN(v) {
+			return int64(1)
+		}
+		return int64(v)
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 1.0
+	}
+	return v
 }
 
 func schemaType(s map[string]any) string {
@@ -393,15 +441,15 @@ func stringExample(s map[string]any) string {
 	}
 	// A run ID is 16 characters once filled in.
 	length := len(strings.ReplaceAll(value, "{{run_id}}", strings.Repeat("x", 16)))
-	if max, ok := number(s["maxLength"]); ok && max > 0 && length > int(max) {
+	if max, ok := number(s["maxLength"]); ok && max > 0 && float64(length) > max {
 		value = plain
 		if len(value) > int(max) {
 			value = value[:int(max)]
 		}
 		length = len(value)
 	}
-	if min, ok := number(s["minLength"]); ok && length < int(min) {
-		value += strings.Repeat("x", int(min)-length)
+	if min, ok := number(s["minLength"]); ok && float64(length) < min {
+		value += strings.Repeat("x", int(math.Min(min, maxExampleLength))-length)
 	}
 	return value
 }

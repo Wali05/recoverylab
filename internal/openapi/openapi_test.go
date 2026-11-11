@@ -123,3 +123,73 @@ func TestRejectsOtherDocuments(t *testing.T) {
 		}
 	}
 }
+
+func example(t *testing.T, schema string) string {
+	t.Helper()
+	doc, err := Parse([]byte(`{"openapi":"3.1.0","paths":{"/things":{"get":{},"post":{"requestBody":{"content":{"application/json":{"schema":` + schema + `}}}}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(doc.Writes(nil)[0].Body)
+}
+
+func TestNumbersStayInsideTheirBounds(t *testing.T) {
+	for schema, want := range map[string]string{
+		`{"type":"integer"}`:                                           `1`,
+		`{"type":"integer","minimum":5}`:                               `5`,
+		`{"type":"integer","minimum":5,"exclusiveMinimum":true}`:       `6`,  // OpenAPI 3.0
+		`{"type":"integer","exclusiveMinimum":10}`:                     `11`, // OpenAPI 3.1
+		`{"type":"integer","exclusiveMinimum":0}`:                      `1`,
+		`{"type":"number","exclusiveMaximum":0}`:                       `-1`,
+		`{"type":"integer","maximum":-3}`:                              `-3`,
+		`{"type":"integer","maximum":0,"exclusiveMaximum":true}`:       `-1`,
+		`{"type":"integer","minimum":3,"multipleOf":5}`:                `5`,
+		`{"type":"integer","minimum":1,"maximum":9,"multipleOf":10}`:   `0`,
+		`{"type":"number","minimum":0.5}`:                              `0.5`,
+		`{"type":"integer","minimum":0.5}`:                             `1`,
+		`{"type":"integer","minimum":1e300}`:                           `1`,
+		`{"type":"integer","minimum":2,"exclusiveMinimum":7}`:          `8`,
+		`{"type":"integer","maximum":20,"exclusiveMaximum":4}`:         `1`,
+		`{"type":"integer","minimum":10,"maximum":20,"multipleOf":7}`:  `14`,
+		`{"type":"integer","exclusiveMinimum":2,"exclusiveMaximum":4}`: `3`,
+	} {
+		if got := example(t, schema); got != want {
+			t.Errorf("%s: got %s, want %s", schema, got, want)
+		}
+	}
+}
+
+// A schema's own limits must not decide how much memory an example takes.
+func TestHugeLimitsDoNotBuildHugeBodies(t *testing.T) {
+	body := example(t, `{"type":"object","properties":{
+		"tags":{"type":"array","minItems":400000000,"items":{"type":"string"}},
+		"note":{"type":"string","minLength":900000000}}}`)
+	if len(body) > 16*1024 {
+		t.Fatalf("body is %d bytes", len(body))
+	}
+	var decoded struct {
+		Tags []string
+		Note string
+	}
+	if err := json.Unmarshal([]byte(body), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	note := strings.ReplaceAll(decoded.Note, "{{run_id}}", "0123456789abcdef")
+	if len(decoded.Tags) != maxExampleItems || len(note) != maxExampleLength {
+		t.Fatalf("got %d tags and a %d-character note", len(decoded.Tags), len(note))
+	}
+}
+
+// "required" can name a property that another allOf branch declares. Building
+// a null for it used to overwrite the real value.
+func TestRequiredWithoutASchemaIsLeftOut(t *testing.T) {
+	if got := example(t, `{"type":"object","required":["sku","ghost"],"properties":{"sku":{"type":"string","example":"book"}}}`); got != `{"sku":"book"}` {
+		t.Errorf("undeclared required property: %s", got)
+	}
+	got := example(t, `{"allOf":[
+		{"type":"object","properties":{"sku":{"type":"string","example":"book"}}},
+		{"type":"object","required":["sku"]}]}`)
+	if got != `{"sku":"book"}` {
+		t.Errorf("allOf lost the declared value: %s", got)
+	}
+}

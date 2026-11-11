@@ -177,11 +177,29 @@ func (c *Config) Resolve(runID string) error {
 		checks[i].Headers = headers(checks[i].Headers)
 	}
 	c.Checks = checks
-	if len(missing) > 0 {
-		sort.Strings(missing)
-		return fmt.Errorf("environment variable %s is not set; the scenario's headers use it", strings.Join(slices.Compact(missing), ", "))
+	return missingEnv(missing)
+}
+
+// ExpandHeaders fills {{env:NAME}} in header values without touching anything
+// else. init and discover use it to read a live endpoint with the real token
+// while the scenario file they write keeps the placeholder.
+func ExpandHeaders(in map[string]string) (map[string]string, error) {
+	var missing []string
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		value, unset := expandEnv(v)
+		missing = append(missing, unset...)
+		out[k] = value
 	}
-	return nil
+	return out, missingEnv(missing)
+}
+
+func missingEnv(names []string) error {
+	if len(names) == 0 {
+		return nil
+	}
+	sort.Strings(names)
+	return fmt.Errorf("environment variable %s is not set; the scenario's headers use it", strings.Join(slices.Compact(names), ", "))
 }
 
 var envRef = regexp.MustCompile(`\{\{env:([A-Za-z_][A-Za-z0-9_]*)\}\}`)

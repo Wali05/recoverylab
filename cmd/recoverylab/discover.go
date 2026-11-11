@@ -40,7 +40,7 @@ func discover(args []string) int {
 	params := paramFlags{}
 	fs.Var(params, "param", "value for a path parameter, such as id=42 (repeatable)")
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return flagExit(err)
 	}
 	if fs.NArg() != 0 || (*base == "" && *spec == "") {
 		fmt.Fprintln(os.Stderr, "usage: recoverylab discover --base http://127.0.0.1:8000 [--openapi URL|FILE] [--out DIR] [--header 'K: V'] [--param id=42]")
@@ -52,20 +52,35 @@ func discover(args []string) int {
 			return 2
 		}
 	}
-	s := newStyle(os.Stdout)
-
-	data, source, err := loadSpec(*base, *spec, headers)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+	// Headers usually carry a token, so a document served over HTTP has to
+	// be on this machine too. One hosted elsewhere can be saved to a file.
+	specURL := strings.HasPrefix(*spec, "http://") || strings.HasPrefix(*spec, "https://")
+	if specURL {
+		if err := config.LocalURL(*spec); err != nil {
+			fmt.Fprintf(os.Stderr, "--openapi: %v; download the document and pass the file instead\n", err)
+			return 2
+		}
 	}
 	if *base == "" {
-		u, err := url.Parse(source)
-		if err != nil || u.Scheme == "" {
+		u, err := url.Parse(*spec)
+		if !specURL || err != nil {
 			fmt.Fprintln(os.Stderr, "pass --base so discover knows where the service runs")
 			return 2
 		}
 		*base = u.Scheme + "://" + u.Host
+	}
+	s := newStyle(os.Stdout)
+	// Scenario files keep {{env:NAME}}; live reads need the real value.
+	live, err := config.ExpandHeaders(headers)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+
+	data, source, err := loadSpec(*base, *spec, live)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
 	}
 	*base = strings.TrimRight(*base, "/")
 	doc, err := openapi.Parse(data)
@@ -99,7 +114,7 @@ func discover(args []string) int {
 			fmt.Fprintf(os.Stdout, "  %s %s  %s\n", s.dim("–"), s.dim(label), s.dim(e.Skip))
 			continue
 		}
-		c, note, err := scenarioFor(*base, e, headers, *noKey)
+		c, note, err := scenarioFor(*base, e, headers, live, *noKey)
 		if err != nil {
 			fmt.Fprintf(os.Stdout, "  %s %s  %s\n", s.amber("!"), label, err)
 			continue
@@ -167,7 +182,7 @@ func loadSpec(base, spec string, headers map[string]string) ([]byte, string, err
 
 // scenarioFor turns an endpoint into a scenario. It reads the list endpoint
 // once so the chosen counter is one that actually exists in a real reply.
-func scenarioFor(base string, e openapi.Endpoint, headers map[string]string, noKey bool) (config.Config, string, error) {
+func scenarioFor(base string, e openapi.Endpoint, headers, live map[string]string, noKey bool) (config.Config, string, error) {
 	delta := int64(1)
 	c := config.Config{
 		Schema:   config.SchemaURL,
@@ -192,7 +207,12 @@ func scenarioFor(base string, e openapi.Endpoint, headers map[string]string, noK
 		c.Request.Headers["Idempotency-Key"] = "recoverylab-{{run_id}}"
 	}
 
-	root, err := fetchJSON(c.Observe.URL, headers)
+	// Check the scenario before sending anything, so a base that isn't on
+	// this machine never receives a request.
+	if err := config.LocalURL(c.Observe.URL); err != nil {
+		return c, "", err
+	}
+	root, err := fetchJSON(c.Observe.URL, live)
 	if err != nil {
 		if e.Measure == "" {
 			return c, "", fmt.Errorf("couldn't read GET %s (%v) and its schema doesn't say what to count", e.ListPath, err)
