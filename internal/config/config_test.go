@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadStrictAndLocal(t *testing.T) {
@@ -283,5 +285,67 @@ func TestHeadersReadSecretsFromTheEnvironment(t *testing.T) {
 	c.Request.Headers = map[string]string{"Authorization": "{{env:RECOVERYLAB_UNSET_A}} {{env:RECOVERYLAB_UNSET_A}}"}
 	if err := c.Resolve("r2"); err == nil || !strings.Contains(err.Error(), "RECOVERYLAB_UNSET_A is not set") {
 		t.Fatalf("missing variable: %v", err)
+	}
+}
+
+func TestUUIDPlaceholderIsStableWithinARun(t *testing.T) {
+	a, b := RunUUID("0123456789abcdef"), RunUUID("fedcba9876543210")
+	shape := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	if !shape.MatchString(a) || !shape.MatchString(b) || a == b || a != RunUUID("0123456789abcdef") {
+		t.Fatalf("not stable, distinct version 4 UUIDs: %q %q", a, b)
+	}
+	c := Config{
+		Request: Request{URL: "http://127.0.0.1:8080/orders/{{uuid}}", Headers: map[string]string{"Idempotency-Key": "{{uuid}}"}, Body: json.RawMessage(`{"id":"{{uuid}}","ref":"{{run_id}}"}`)},
+		Observe: Observation{URL: "http://127.0.0.1:8080/orders/{{uuid}}"},
+	}
+	if err := c.Resolve("0123456789abcdef"); err != nil {
+		t.Fatal(err)
+	}
+	if c.Request.Headers["Idempotency-Key"] != a || string(c.Request.Body) != `{"id":"`+a+`","ref":"0123456789abcdef"}` || !strings.HasSuffix(c.Request.URL, a) || !strings.HasSuffix(c.Observe.URL, a) {
+		t.Fatalf("uuid not filled in everywhere: %+v", c)
+	}
+}
+
+func TestIdempotencyKeyHeaderNames(t *testing.T) {
+	for header, want := range map[string]bool{
+		"Idempotency-Key": true, "idempotency-key": true, "X-Idempotency-Key": true, "Idempotency_Key": true, "IdempotencyKey": true,
+		"X-Request-Id": false, "Authorization": false, "Key": false,
+	} {
+		if _, ok := IdempotencyKey(map[string]string{header: "k"}); ok != want {
+			t.Errorf("%s: got %v, want %v", header, ok, want)
+		}
+	}
+	if _, ok := IdempotencyKey(map[string]string{"Idempotency-Key": "  "}); ok {
+		t.Error("a blank key is no key")
+	}
+	if name, _ := IdempotencyKey(map[string]string{"x-idempotency-key": "a", "Idempotency-Key": "b"}); name != "Idempotency-Key" {
+		t.Errorf("the choice between two key headers should be stable, got %q", name)
+	}
+}
+
+func TestCrashMidRequestSettings(t *testing.T) {
+	delta := int64(1)
+	c := Config{
+		Name: "mid", Scenario: "crash-mid-request", CrashDelay: "250us",
+		Service:       &Service{Command: []string{"svc"}, ReadyURL: "http://127.0.0.1:8080/health"},
+		Request:       Request{Method: "POST", URL: "http://127.0.0.1:8080/orders"},
+		Observe:       Observation{URL: "http://127.0.0.1:8080/state", Pointer: "/count", ExpectedDelta: &delta},
+		RetryResponse: &RetryResponse{AllowedStatuses: []int{200, 201}},
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if c.CrashAfter() != 250*time.Microsecond {
+		t.Fatalf("delay %v", c.CrashAfter())
+	}
+	c.CrashDelay = ""
+	if err := c.Validate(); err != nil || c.CrashAfter() != 0 {
+		t.Fatalf("no delay means kill at once: %v %v", err, c.CrashAfter())
+	}
+	for _, bad := range []string{"-1ms", "31s", "soon"} {
+		c.CrashDelay = bad
+		if err := c.Validate(); err == nil {
+			t.Errorf("accepted crash_delay %q", bad)
+		}
 	}
 }

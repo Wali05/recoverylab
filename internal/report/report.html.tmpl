@@ -146,7 +146,7 @@ footer p { margin: 4px 0; }
     {{if or .Checks .AfterRestartChecks}}
     <table>
       <tr><th>Check</th><th>Before</th><th>Expected</th><th>Observed</th></tr>
-      {{range .AfterRestartChecks}}{{if .Observed}}<tr><td>{{.Name}} <span class="note">after restart</span></td><td class="num">{{.Baseline}}</td><td class="num">{{.Expected}}</td><td class="num{{if ne (deref .Observed) .Expected}} bad{{end}}">{{deref .Observed}}</td></tr>{{end}}{{end}}
+      {{range .AfterRestartChecks}}{{if .Observed}}<tr><td>{{.Name}} <span class="note">after restart</span></td><td class="num">{{.Baseline}}</td><td class="num">{{wanted .}}</td><td class="num{{if not .Held}} bad{{end}}">{{deref .Observed}}</td></tr>{{end}}{{end}}
       {{range .Checks}}{{if .Observed}}<tr><td>{{.Name}}</td><td class="num">{{.Baseline}}</td><td class="num">{{.Expected}}</td><td class="num{{if ne (deref .Observed) .Expected}} bad{{end}}">{{deref .Observed}}</td></tr>{{end}}{{end}}
     </table>
     {{end}}

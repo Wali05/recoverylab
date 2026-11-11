@@ -11,17 +11,17 @@
     "name": { "type": "string", "description": "Shown in reports. Defaults to the file name." },
     "scenario": {
       "description": "Which failure `run` injects. `audit` ignores this and runs every scenario that applies.",
-      "enum": ["lost-response", "concurrent-duplicates", "crash-after-ack", "key-reuse"]
+      "enum": ["lost-response", "concurrent-duplicates", "key-reuse", "crash-after-ack", "crash-mid-request"]
     },
     "timeout": { "$ref": "#/$defs/duration", "description": "Deadline for the whole experiment. Default 20s." },
     "concurrency": { "type": "integer", "minimum": 2, "maximum": 64, "description": "Copies sent at once by concurrent-duplicates. Default 16." },
     "service": {
       "type": "object",
-      "description": "A foreground process RecoveryLab starts, and kills for crash-after-ack.",
+      "description": "A foreground process RecoveryLab starts, and kills for crash-after-ack and crash-mid-request.",
       "additionalProperties": false,
       "required": ["command", "ready_url"],
       "properties": {
-        "command": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "The server executable and its arguments, with no shell wrapper." },
+        "command": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "The command that starts the server and its arguments. It runs without a shell; everything it starts is killed with it." },
         "working_dir": { "type": "string", "description": "Relative to the scenario file. Default: the scenario file's folder." },
         "ready_url": { "$ref": "#/$defs/localURL", "description": "Returns 2xx once the service is ready." },
         "startup_timeout": { "$ref": "#/$defs/duration", "description": "Default 10s." }
@@ -29,7 +29,7 @@
     },
     "request": {
       "type": "object",
-      "description": "The write being tested. {{run_id}} is replaced with a fresh value per run.",
+      "description": "The write being tested. {{run_id}} is replaced with a fresh value per run, and {{uuid}} with a UUID derived from it.",
       "additionalProperties": false,
       "required": ["method", "url"],
       "properties": {
@@ -41,6 +41,7 @@
     },
     "changed_body": { "description": "key-reuse only: the body sent with the reused key. Must differ from request.body by value." },
     "expected_reuse_status": { "type": "integer", "minimum": 400, "maximum": 499, "description": "key-reuse only. Default 422." },
+    "crash_delay": { "$ref": "#/$defs/duration", "description": "crash-mid-request only: how long after the request is sent the service is killed, from 0s to 30s. Default 0s. `audit` ignores this and spreads several kills across the request's duration." },
     "observe": { "$ref": "#/$defs/observation" },
     "checks": {
       "type": "array",
@@ -51,7 +52,7 @@
     },
     "retry_response": {
       "type": "object",
-      "description": "lost-response and crash-after-ack: what the retry must return. Without it, a lost-response retry must be 2xx.",
+      "description": "lost-response, crash-after-ack, and crash-mid-request: what the retry must return. Without it, a retry must be 2xx.",
       "additionalProperties": false,
       "properties": {
         "allowed_statuses": { "$ref": "#/$defs/statuses" },

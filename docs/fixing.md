@@ -9,6 +9,8 @@ Every finding RecoveryLab reports links to one of the sections below. They descr
 - [Bind the key to the request](#bind-the-key-to-the-request)
 - [Reply after the write commits](#reply-after-the-write-commits)
 - [Keep keys across restarts](#keep-keys-across-restarts)
+- [Commit every effect together](#commit-every-effect-together)
+- [Don't leave a key claimed by a dead request](#dont-leave-a-key-claimed-by-a-dead-request)
 - [Let old keys expire](#let-old-keys-expire)
 - [When the work can't fit in one transaction](#when-the-work-cant-fit-in-one-transaction)
 
@@ -141,6 +143,39 @@ If the work really has to happen later, say so: answer **202 Accepted** with a l
 *Fixes: the order survived the crash, but retrying after restart created another one.*
 
 Keys kept in a map, an in-process cache, or a single Redis instance without persistence vanish with the process. Store them in the same database as the effect, which the table above does.
+
+## Commit every effect together
+
+*Fixes: a crash mid-request left an order without its charge.*
+
+One request often changes several things: an order row, a ledger entry, a stock count. If they are written one after another, each in its own transaction, the process can die between any two of them. The order then exists without its ledger entry, and no later request will notice.
+
+Write them in one transaction. The handler in [Store the key with the effect](#store-the-key-with-the-effect) already does this: `insertOrder` takes the same `tx` that claimed the key, and anything else the request changes should take it too.
+
+```go
+order, err := insertOrder(tx, body)
+if err != nil { ... }
+if err := insertLedgerEntry(tx, order); err != nil { ... } // same tx: both or neither
+```
+
+To see this in a test, give the scenario one check per effect. RecoveryLab's `crash-mid-request` kills the service part-way through the request and, before it retries, requires every check to show the write either done or not done. One that moved while another didn't is a half-finished write.
+
+## Don't leave a key claimed by a dead request
+
+*Fixes: after a crash mid-request, the retry is told the work is done when it isn't, or is refused forever.*
+
+A key that is saved before its work, in a write of its own, can outlive the request that saved it. After a crash the service finds the key and has two bad options. If it treats the key as finished, it replies "done" for work that never happened. If it treats the key as in progress, it answers 409 to every retry, waiting for a request that is gone.
+
+The fix is the same transaction again. When the key and the work commit together, a crash rolls both back and the retry starts clean. In PostgreSQL the claim in the handler above is exactly that: the `INSERT` into `idempotency_keys` isn't visible to anyone until the order commits with it.
+
+If the key really must be claimed first, because the work calls another system, store who claimed it and when, and let a retry take over a claim that is older than any live request could be:
+
+```sql
+UPDATE idempotency_keys SET locked_at = now()
+WHERE scope = $1 AND key = $2 AND status = 0 AND locked_at < now() - interval '30 seconds';
+```
+
+One row updated means this retry now owns the key and can redo the work. Brandur Leach's [Stripe-like design](https://brandur.org/idempotency-keys) uses the same idea: a `locked_at` column, plus recovery points that record how far the first attempt got.
 
 ## Let old keys expire
 

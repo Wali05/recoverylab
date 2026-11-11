@@ -167,3 +167,120 @@ func TestGuideLinksPointAtRealSections(t *testing.T) {
 		}
 	}
 }
+
+func TestDiagnosesCrashMidRequest(t *testing.T) {
+	check := func(name string, observed int64, allowed ...int64) engine.StateCheck {
+		return engine.StateCheck{Name: name, Baseline: 0, Expected: 1, Observed: i64(observed), Allowed: allowed}
+	}
+	for name, test := range map[string]struct {
+		report engine.Report
+		want   []string
+		learn  string
+	}{
+		"half-finished write": {
+			report: engine.Report{
+				CrashPoint:         &engine.CrashPointCheck{Outcome: "partial", Issues: []string{"x"}},
+				AfterRestartChecks: []engine.StateCheck{check("orders", 1, 0, 1), check("charges", 0, 0, 1)},
+				Checks:             []engine.StateCheck{check("orders", 1), check("charges", 0)},
+			},
+			want:  []string{"half-finished write: orders changed but charges did not", "aren't committed together", "retry didn't repair it", "single database transaction"},
+			learn: "commit-every-effect-together",
+		},
+		"key saved before the work": {
+			report: engine.Report{
+				CrashPoint:         &engine.CrashPointCheck{Outcome: "not-applied", Passed: true},
+				AfterRestartChecks: []engine.StateCheck{check("orders", 0, 0, 1)},
+				Checks:             []engine.StateCheck{check("orders", 0)},
+				RetryResponse:      &engine.ResponseCheck{RetryHTTPStatus: 200, Passed: true},
+			},
+			want:  []string{"stopped the write before it happened", "HTTP 200 without doing it", "saved before the work"},
+			learn: "dont-leave-a-key-claimed-by-a-dead-request",
+		},
+		"key stuck in progress": {
+			report: engine.Report{
+				CrashPoint:         &engine.CrashPointCheck{Outcome: "not-applied", Passed: true},
+				AfterRestartChecks: []engine.StateCheck{check("orders", 0, 0, 1)},
+				// The write is still missing afterwards, but the refusal is
+				// what explains it.
+				Checks:        []engine.StateCheck{check("orders", 0)},
+				RetryResponse: &engine.ResponseCheck{RetryHTTPStatus: 409, Issues: []string{"retry returned HTTP 409; expected 2xx"}},
+			},
+			want:  []string{"refused with HTTP 409", "marked as in progress", "timeout"},
+			learn: "dont-leave-a-key-claimed-by-a-dead-request",
+		},
+		"work saved without its key": {
+			report: engine.Report{
+				CrashPoint:         &engine.CrashPointCheck{Outcome: "applied", Passed: true},
+				AfterRestartChecks: []engine.StateCheck{check("orders", 1, 0, 1)},
+				Checks:             []engine.StateCheck{check("orders", 2)},
+			},
+			want:  []string{"committed before the crash", "ran it again", "key wasn't"},
+			learn: "store-the-key-with-the-effect",
+		},
+		"acknowledged write lost": {
+			report: engine.Report{
+				CrashPoint:         &engine.CrashPointCheck{Outcome: "not-applied", ReplyReceived: true},
+				AfterRestartChecks: []engine.StateCheck{check("orders", 0)},
+				Checks:             []engine.StateCheck{check("orders", 1)},
+			},
+			want:  []string{"lost the write when it crashed", "before the write was durable"},
+			learn: "reply-after-the-write-commits",
+		},
+		"state no request could produce": {
+			report: engine.Report{
+				CrashPoint:         &engine.CrashPointCheck{Outcome: "unexpected"},
+				AfterRestartChecks: []engine.StateCheck{check("orders", 3, 0, 1)},
+			},
+			want: []string{"orders was 3", "neither the value before the request (0) nor after it (1)"},
+		},
+	} {
+		test.report.Status, test.report.Scenario = "VIOLATION", "crash-mid-request"
+		d := Report(test.report)
+		text := d.Summary + " " + d.Cause + " " + strings.Join(d.Fixes, " ")
+		for _, want := range test.want {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s: missing %q in %+v", name, want, d)
+			}
+		}
+		if test.learn != "" && !strings.HasSuffix(d.Learn, "#"+test.learn) {
+			t.Errorf("%s: learn-more link %q, want #%s", name, d.Learn, test.learn)
+		}
+	}
+}
+
+func TestCrashSweepSaysHowManyKillsLandedMidRequest(t *testing.T) {
+	run := func(reply bool, outcome string) engine.Report {
+		return engine.Report{Status: "PASS", Scenario: "crash-mid-request", CrashPoint: &engine.CrashPointCheck{ReplyReceived: reply, Outcome: outcome, Passed: true}}
+	}
+	mixed := CrashSweep([]engine.Report{run(false, "not-applied"), run(false, "applied"), run(true, "applied")})
+	if !strings.Contains(mixed.Summary, "3 different moments, 2 of them mid-request") {
+		t.Errorf("mixed: %q", mixed.Summary)
+	}
+	// A pass where no kill landed mid-request must not read like one.
+	late := CrashSweep([]engine.Report{run(true, "applied"), run(true, "applied")})
+	if !strings.Contains(late.Summary, "none landed mid-request") {
+		t.Errorf("late: %q", late.Summary)
+	}
+	for outcome, want := range map[string]string{"not-applied": "before anything was written", "applied": "after the write had committed"} {
+		if d := CrashSweep([]engine.Report{run(false, outcome)}); !strings.Contains(d.Summary, want) {
+			t.Errorf("single %s run: %q", outcome, d.Summary)
+		}
+	}
+}
+
+func TestFullPageExplainsAListThatDidNotGrow(t *testing.T) {
+	r := engine.Report{Status: "VIOLATION", Scenario: "lost-response",
+		Checks: []engine.StateCheck{{Name: "state", Baseline: 20, Expected: 21, Observed: i64(20), Measure: "length"}}}
+	d := Report(r)
+	if !strings.Contains(d.Cause, "20 items, which looks like one full page") || !strings.Contains(d.Fixes[0], "/total") {
+		t.Fatalf("a full page should be called out: %+v", d)
+	}
+	r.Checks[0].Baseline, r.Checks[0].Expected, r.Checks[0].Observed = 7, 8, i64(7)
+	if d := Report(r); strings.Contains(d.Cause, "full page") {
+		t.Fatalf("seven items is not a page size: %+v", d)
+	}
+	r.Checks[0] = engine.StateCheck{Name: "state", Baseline: 20, Expected: 21, Observed: i64(20)}
+	if d := Report(r); strings.Contains(d.Cause, "full page") {
+		t.Fatalf("a plain counter of 20 is not a page: %+v", d)
+	}
+}

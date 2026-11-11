@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/Wali05/recoverylab/internal/engine"
 
 	"github.com/Wali05/recoverylab/internal/config"
 	"github.com/Wali05/recoverylab/internal/fixture"
@@ -28,8 +31,8 @@ func TestPlanCarriesOnlyMatchingSettings(t *testing.T) {
 	c.Concurrency = 8
 	c.ConcurrentResponse = &config.ConcurrentResponse{AllowedStatuses: []int{201, 409}}
 	c.RetryResponse = &config.RetryResponse{SameJSONPointers: []string{"/id"}}
-	steps := Plan(c, 3)
-	if len(steps) != 4 {
+	steps := Plan(c, Options{Bursts: 3, CrashPoints: 4})
+	if len(steps) != 5 {
 		t.Fatalf("got %d steps", len(steps))
 	}
 	lost, burst, reuse, crash := steps[0], steps[1], steps[2], steps[3]
@@ -47,13 +50,13 @@ func TestPlanCarriesOnlyMatchingSettings(t *testing.T) {
 	}
 
 	c.Request.Headers = nil
-	if reuse := Plan(c, 1)[2]; !strings.Contains(reuse.SkipReason, "Idempotency-Key") {
+	if reuse := Plan(c, Options{Bursts: 1})[2]; !strings.Contains(reuse.SkipReason, "Idempotency-Key") {
 		t.Errorf("key reuse without a key: %+v", reuse)
 	}
 	c.Request.Headers = map[string]string{"idempotency-key": "x"}
 	c.Service = &config.Service{Command: []string{"svc"}, ReadyURL: "http://127.0.0.1:8080/health"}
-	steps = Plan(c, 1)
-	if steps[2].SkipReason != "" || steps[3].SkipReason != "" || steps[3].Config.RetryResponse == nil {
+	steps = Plan(c, Options{Bursts: 1, CrashPoints: 4})
+	if steps[2].SkipReason != "" || steps[3].SkipReason != "" || steps[3].Config.RetryResponse == nil || steps[4].SkipReason != "" || steps[4].Runs != 4 {
 		t.Errorf("service and lowercase key header should enable every step: %+v", steps)
 	}
 }
@@ -85,8 +88,8 @@ func TestAuditAgainstFixtures(t *testing.T) {
 		mode, status string
 		want         map[string]string
 	}{
-		{"correct", "PASS", map[string]string{"lost-response": "PASS", "concurrent-duplicates": "PASS", "key-reuse": "PASS", "crash-after-ack": "SKIPPED"}},
-		{"duplicate-bug", "VIOLATION", map[string]string{"lost-response": "VIOLATION", "concurrent-duplicates": "VIOLATION", "key-reuse": "VIOLATION", "crash-after-ack": "SKIPPED"}},
+		{"correct", "PASS", map[string]string{"lost-response": "PASS", "concurrent-duplicates": "PASS", "key-reuse": "PASS", "crash-after-ack": "SKIPPED", "crash-mid-request": "SKIPPED"}},
+		{"duplicate-bug", "VIOLATION", map[string]string{"lost-response": "VIOLATION", "concurrent-duplicates": "VIOLATION", "key-reuse": "VIOLATION", "crash-after-ack": "SKIPPED", "crash-mid-request": "SKIPPED"}},
 	} {
 		t.Run(test.mode, func(t *testing.T) {
 			handler, err := fixture.New(test.mode, filepath.Join(t.TempDir(), "journal.jsonl"))
@@ -97,8 +100,8 @@ func TestAuditAgainstFixtures(t *testing.T) {
 			defer server.Close()
 			c := base(server.URL)
 			var streamed int
-			report := Run(context.Background(), c, Plan(c, 2), func(Result) { streamed++ })
-			if report.Status != test.status || streamed != 4 || report.Skipped != 1 {
+			report := Run(context.Background(), c, Plan(c, Options{Bursts: 2, CrashPoints: 3}), func(Result) { streamed++ })
+			if report.Status != test.status || streamed != 5 || report.Skipped != 2 {
 				t.Fatalf("unexpected audit: %+v", report)
 			}
 			for _, r := range report.Results {
@@ -127,7 +130,7 @@ func TestCombineKeepsTheWorstStatus(t *testing.T) {
 }
 
 func TestPlanTurnsOnResponseChecks(t *testing.T) {
-	steps := Plan(base("http://127.0.0.1:8080"), 1)
+	steps := Plan(base("http://127.0.0.1:8080"), DefaultOptions)
 	if r := steps[0].Config.RetryResponse; r == nil || !r.CompareIDs {
 		t.Errorf("lost-response should compare IDs: %+v", r)
 	}
@@ -137,11 +140,94 @@ func TestPlanTurnsOnResponseChecks(t *testing.T) {
 	declared := base("http://127.0.0.1:8080")
 	declared.RetryResponse = &config.RetryResponse{SameJSONPointers: []string{"/order_id"}}
 	declared.ConcurrentResponse = &config.ConcurrentResponse{AllowedStatuses: []int{201, 409, 500}}
-	steps = Plan(declared, 1)
+	steps = Plan(declared, DefaultOptions)
 	if r := steps[0].Config.RetryResponse; r.CompareIDs || r.SameJSONPointers[0] != "/order_id" {
 		t.Errorf("declared pointers should win: %+v", r)
 	}
 	if r := steps[1].Config.ConcurrentResponse; r.NoServerErrors {
 		t.Errorf("a declared status list should win: %+v", r)
+	}
+}
+
+func TestCrashPointsSpreadAcrossTheRequest(t *testing.T) {
+	// With a measured reply time, kills go from "just arrived" up to it.
+	var got []string
+	for i := 0; i < 4; i++ {
+		got = append(got, crashDelay(i, 4, 100*time.Millisecond).String())
+	}
+	if strings.Join(got, " ") != "0s 25ms 50ms 75ms" {
+		t.Errorf("measured: %v", got)
+	}
+	// Without one, they double.
+	got = nil
+	for i := 0; i < 6; i++ {
+		got = append(got, crashDelay(i, 6, 0).String())
+	}
+	if strings.Join(got, " ") != "0s 1ms 2ms 4ms 8ms 16ms" {
+		t.Errorf("unmeasured: %v", got)
+	}
+	if d := crashDelay(31, 32, time.Hour); d != 30*time.Second {
+		t.Errorf("a kill point must stay inside what a scenario allows: %v", d)
+	}
+
+	// A kill that came after the reply shows the service is faster than the
+	// estimate, so later kills move earlier.
+	prior := []engine.Report{
+		{CrashPoint: &engine.CrashPointCheck{DelayMS: 40, ReplyReceived: false}},
+		{CrashPoint: &engine.CrashPointCheck{DelayMS: 8, ReplyReceived: true}},
+		{},
+	}
+	if d := replyTime(100*time.Millisecond, prior); d != 8*time.Millisecond {
+		t.Errorf("reply time after an early answer: %v", d)
+	}
+	if d := replyTime(0, prior); d != 8*time.Millisecond {
+		t.Errorf("reply time with no estimate: %v", d)
+	}
+	if d := replyTime(5*time.Millisecond, prior); d != 5*time.Millisecond {
+		t.Errorf("a slower reply must not widen the estimate: %v", d)
+	}
+}
+
+func TestSweepConfigsAreValidScenarios(t *testing.T) {
+	c := base("http://127.0.0.1:8080")
+	c.Service = &config.Service{Command: []string{"svc"}, ReadyURL: "http://127.0.0.1:8080/health"}
+	c.CrashDelay = "9ms" // a setting for run, which the audit replaces
+	step := Plan(c, Options{Bursts: 1, CrashPoints: 5})[4]
+	if step.Scenario != "crash-mid-request" || step.SkipReason != "" || step.Sweep == nil {
+		t.Fatalf("unexpected step: %+v", step)
+	}
+	for i := 0; i < 5; i++ {
+		swept := step.Sweep(i, 333*time.Microsecond, nil)
+		if err := swept.Validate(); err != nil {
+			t.Fatalf("run %d (%q): %v", i, swept.CrashDelay, err)
+		}
+		if i > 0 && swept.CrashAfter() <= 0 {
+			t.Fatalf("run %d has no delay: %q", i, swept.CrashDelay)
+		}
+	}
+	if off := Plan(c, Options{Bursts: 1, CrashPoints: 0})[4]; !strings.Contains(off.SkipReason, "--crash-points 0") {
+		t.Errorf("zero crash points should skip the step: %+v", off)
+	}
+	c.Service = nil
+	if skipped := Plan(c, DefaultOptions)[4]; !strings.Contains(skipped.SkipReason, `"service"`) {
+		t.Errorf("no service: %+v", skipped)
+	}
+}
+
+func TestCrashNoteSaysWhereKillsLanded(t *testing.T) {
+	reports := []engine.Report{
+		{CrashPoint: &engine.CrashPointCheck{DelayMS: 0.34, ReplyReceived: false}},
+		{CrashPoint: &engine.CrashPointCheck{DelayMS: 12.6, ReplyReceived: false}},
+		{CrashPoint: &engine.CrashPointCheck{DelayMS: 4, ReplyReceived: true}},
+		{Status: "ERROR"},
+	}
+	if got := crashNote(reports); got != "3 kills, 0.3 to 13 ms in; 2 landed before the reply" {
+		t.Errorf("got %q", got)
+	}
+	if got := crashNote(reports[:1]); got != "1 kill, 0.3 ms in; 1 landed before the reply" {
+		t.Errorf("got %q", got)
+	}
+	if got := crashNote(reports[3:]); got != "" {
+		t.Errorf("no kills: %q", got)
 	}
 }

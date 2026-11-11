@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -27,20 +28,23 @@ const SchemaURL = "https://raw.githubusercontent.com/Wali05/recoverylab/main/doc
 
 // Config describes one reproducible failure experiment.
 type Config struct {
-	Schema              string              `json:"$schema,omitempty"`
-	Name                string              `json:"name"`
-	Scenario            string              `json:"scenario"`
-	Timeout             string              `json:"timeout,omitempty"`
-	Concurrency         int                 `json:"concurrency,omitempty"`
-	Service             *Service            `json:"service,omitempty"`
-	Request             Request             `json:"request"`
-	ChangedBody         json.RawMessage     `json:"changed_body,omitempty"`
-	ExpectedReuseStatus int                 `json:"expected_reuse_status,omitempty"`
-	Observe             Observation         `json:"observe,omitempty"`
-	Checks              []Observation       `json:"checks,omitempty"`
-	RetryResponse       *RetryResponse      `json:"retry_response,omitempty"`
-	ConcurrentResponse  *ConcurrentResponse `json:"concurrent_response,omitempty"`
-	SourceDir           string              `json:"-"`
+	Schema              string          `json:"$schema,omitempty"`
+	Name                string          `json:"name"`
+	Scenario            string          `json:"scenario"`
+	Timeout             string          `json:"timeout,omitempty"`
+	Concurrency         int             `json:"concurrency,omitempty"`
+	Service             *Service        `json:"service,omitempty"`
+	Request             Request         `json:"request"`
+	ChangedBody         json.RawMessage `json:"changed_body,omitempty"`
+	ExpectedReuseStatus int             `json:"expected_reuse_status,omitempty"`
+	// CrashDelay is how long after the request is sent a crash-mid-request
+	// run kills the service. An audit sweeps it across the request's duration.
+	CrashDelay         string              `json:"crash_delay,omitempty"`
+	Observe            Observation         `json:"observe,omitempty"`
+	Checks             []Observation       `json:"checks,omitempty"`
+	RetryResponse      *RetryResponse      `json:"retry_response,omitempty"`
+	ConcurrentResponse *ConcurrentResponse `json:"concurrent_response,omitempty"`
+	SourceDir          string              `json:"-"`
 }
 
 // RetryResponse adds checks for a retry after a lost response or process restart.
@@ -146,11 +150,12 @@ func NewRunID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// Resolve fills in {{run_id}} everywhere and {{env:NAME}} in header values.
-// Environment values are read only into headers, so a token never ends up in
-// a report, which shows names and URLs but never headers.
+// Resolve fills in {{run_id}} and {{uuid}} everywhere and {{env:NAME}} in
+// header values. Environment values are read only into headers, so a token
+// never ends up in a report, which shows names and URLs but never headers.
 func (c *Config) Resolve(runID string) error {
-	replace := func(s string) string { return strings.ReplaceAll(s, "{{run_id}}", runID) }
+	replacer := strings.NewReplacer("{{run_id}}", runID, "{{uuid}}", RunUUID(runID))
+	replace := replacer.Replace
 	var missing []string
 	headers := func(in map[string]string) map[string]string {
 		out := make(map[string]string, len(in))
@@ -178,6 +183,33 @@ func (c *Config) Resolve(runID string) error {
 	}
 	c.Checks = checks
 	return missingEnv(missing)
+}
+
+// RunUUID derives a version 4 UUID from a run ID, for APIs that only accept a
+// UUID as an idempotency key. One run always gets the same UUID, so the
+// original request and its retry share it.
+func RunUUID(runID string) string {
+	sum := sha256.Sum256([]byte("recoverylab-uuid:" + runID))
+	b := sum[:16]
+	b[6] = b[6]&0x0f | 0x40 // version 4
+	b[8] = b[8]&0x3f | 0x80 // RFC 4122 variant
+	h := hex.EncodeToString(b)
+	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
+}
+
+// IdempotencyKey returns the request's idempotency key header, if it has one
+// with a value. Idempotency-Key is the IETF draft's name; X-Idempotency-Key
+// and Idempotency_Key are common in older APIs.
+func IdempotencyKey(headers map[string]string) (name string, ok bool) {
+	for k, v := range headers {
+		switch strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(k)) {
+		case "idempotencykey", "xidempotencykey":
+			if strings.TrimSpace(v) != "" && (name == "" || k < name) {
+				name, ok = k, true
+			}
+		}
+	}
+	return name, ok
 }
 
 // ExpandHeaders fills {{env:NAME}} in header values without touching anything
@@ -246,6 +278,13 @@ func (c Config) ReuseStatus() int {
 	return c.ExpectedReuseStatus
 }
 
+// CrashAfter is the crash-mid-request delay. Zero kills the service as soon
+// as the request has been written.
+func (c Config) CrashAfter() time.Duration {
+	d, _ := time.ParseDuration(c.CrashDelay)
+	return d
+}
+
 func (s Service) StartupDuration() time.Duration {
 	if s.StartupTimeout == "" {
 		return 10 * time.Second
@@ -258,8 +297,18 @@ func (c Config) Validate() error {
 	if c.Name == "" {
 		return errors.New("name is required")
 	}
-	if c.Scenario != "lost-response" && c.Scenario != "crash-after-ack" && c.Scenario != "concurrent-duplicates" && c.Scenario != "key-reuse" {
-		return errors.New("scenario must be lost-response, concurrent-duplicates, crash-after-ack, or key-reuse")
+	switch c.Scenario {
+	case "lost-response", "concurrent-duplicates", "key-reuse", "crash-after-ack", "crash-mid-request":
+	default:
+		return errors.New("scenario must be lost-response, concurrent-duplicates, key-reuse, crash-after-ack, or crash-mid-request")
+	}
+	if c.CrashDelay != "" {
+		if c.Scenario != "crash-mid-request" {
+			return errors.New("crash_delay only applies to crash-mid-request")
+		}
+		if d, err := time.ParseDuration(c.CrashDelay); err != nil || d < 0 || d > 30*time.Second {
+			return errors.New("crash_delay must be a duration from 0s to 30s, such as 5ms")
+		}
 	}
 	if c.Scenario == "concurrent-duplicates" {
 		if c.Workers() < 2 || c.Workers() > 64 {
@@ -269,8 +318,8 @@ func (c Config) Validate() error {
 		return errors.New("concurrency only applies to concurrent-duplicates")
 	}
 	if c.RetryResponse != nil {
-		if c.Scenario != "lost-response" && c.Scenario != "crash-after-ack" {
-			return errors.New("retry_response only applies to lost-response or crash-after-ack")
+		if c.Scenario != "lost-response" && c.Scenario != "crash-after-ack" && c.Scenario != "crash-mid-request" {
+			return errors.New("retry_response only applies to lost-response, crash-after-ack, or crash-mid-request")
 		}
 		if len(c.RetryResponse.AllowedStatuses) > 16 {
 			return errors.New("retry_response.allowed_statuses may contain at most 16 codes")
@@ -393,13 +442,7 @@ func (c Config) Validate() error {
 		if c.ReuseStatus() < 400 || c.ReuseStatus() > 499 {
 			return errors.New("expected_reuse_status must be a 4xx HTTP status")
 		}
-		keyFound := false
-		for header, value := range c.Request.Headers {
-			if strings.EqualFold(header, "Idempotency-Key") && strings.TrimSpace(value) != "" {
-				keyFound = true
-			}
-		}
-		if !keyFound {
+		if _, ok := IdempotencyKey(c.Request.Headers); !ok {
 			return errors.New("key-reuse requires an Idempotency-Key request header")
 		}
 	} else if len(c.ChangedBody) > 0 || c.ExpectedReuseStatus != 0 {
@@ -410,8 +453,8 @@ func (c Config) Validate() error {
 			return errors.New("request.headers cannot contain line breaks")
 		}
 	}
-	if c.Scenario == "crash-after-ack" && c.Service == nil {
-		return errors.New("crash-after-ack requires a managed service")
+	if (c.Scenario == "crash-after-ack" || c.Scenario == "crash-mid-request") && c.Service == nil {
+		return errors.New(c.Scenario + " requires a managed service")
 	}
 	if c.Service != nil {
 		if len(c.Service.Command) == 0 || c.Service.Command[0] == "" {

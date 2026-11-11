@@ -20,7 +20,8 @@ func runAudit(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("audit", flag.ContinueOnError)
 	format := fs.String("format", "text", "text or json")
 	output := fs.String("output", "", "write the JSON audit to a file")
-	bursts := fs.Int("bursts", 5, "concurrent bursts to try, 1-100; races don't show up every time")
+	bursts := fs.Int("bursts", audit.DefaultOptions.Bursts, "concurrent bursts to try, 1-100; races don't show up every time")
+	crashPoints := fs.Int("crash-points", audit.DefaultOptions.CrashPoints, "times to kill a managed service mid-request, 0-32, each at a different moment; 0 skips the check")
 	junit := fs.String("junit", "", "write a JUnit XML report for CI")
 	html := fs.String("html", "", "write a self-contained HTML report")
 	markdown := fs.String("markdown", "", "write a Markdown summary, such as $GITHUB_STEP_SUMMARY")
@@ -29,7 +30,7 @@ func runAudit(ctx context.Context, args []string) int {
 		return flagExit(err)
 	}
 	if fs.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "usage: recoverylab audit [--bursts N] [--format text|json] [--output AUDIT.json] SCENARIO.json|DIR ...")
+		fmt.Fprintln(os.Stderr, "usage: recoverylab audit [--bursts N] [--crash-points N] [--format text|json] [--output AUDIT.json] SCENARIO.json|DIR ...")
 		return 2
 	}
 	if *format != "text" && *format != "json" {
@@ -38,6 +39,10 @@ func runAudit(ctx context.Context, args []string) int {
 	}
 	if *bursts < 1 || *bursts > 100 {
 		fmt.Fprintln(os.Stderr, "--bursts must be between 1 and 100")
+		return 2
+	}
+	if *crashPoints < 0 || *crashPoints > 32 {
+		fmt.Fprintln(os.Stderr, "--crash-points must be between 0 and 32")
 		return 2
 	}
 	files, err := scenarioFiles(fs.Args())
@@ -59,7 +64,7 @@ func runAudit(ctx context.Context, args []string) int {
 			fmt.Fprintln(os.Stderr, "invalid scenario:", err)
 			return 2
 		}
-		steps := audit.Plan(base, *bursts)
+		steps := audit.Plan(base, audit.Options{Bursts: *bursts, CrashPoints: *crashPoints})
 		runnable := false
 		for _, step := range steps {
 			runnable = runnable || step.SkipReason == ""

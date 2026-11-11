@@ -9,10 +9,13 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/http/httptrace"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wali05/recoverylab/internal/config"
@@ -29,13 +32,43 @@ type Attempt struct {
 	Kind        string `json:"kind"`
 	HTTPStatus  int    `json:"http_status,omitempty"`
 	ClientError string `json:"client_error,omitempty"`
+	// DurationMS is how long the request took from the client's side.
+	DurationMS float64 `json:"duration_ms,omitempty"`
+	// ServerMS is the part of that spent waiting for the service: from the
+	// request being written to the first byte of the reply.
+	ServerMS float64 `json:"server_ms,omitempty"`
 }
+
+func newAttempt(kind string, status int, err error, start time.Time) Attempt {
+	return Attempt{Kind: kind, HTTPStatus: status, ClientError: errorString(err), DurationMS: millis(time.Since(start))}
+}
+
+func millis(d time.Duration) float64 { return math.Round(d.Seconds()*1e5) / 100 }
 
 type StateCheck struct {
 	Name     string `json:"name"`
 	Baseline int64  `json:"baseline"`
 	Expected int64  `json:"expected"`
 	Observed *int64 `json:"observed,omitempty"`
+	// Measure is "length" when the value is a list's item count.
+	Measure string `json:"measure,omitempty"`
+	// Allowed lists every acceptable value when there is more than one. After
+	// a crash mid-request, a write may have happened or not; both are fine.
+	Allowed []int64 `json:"allowed,omitempty"`
+}
+
+// Held reports whether the observed value is acceptable. A check that was
+// never observed has nothing against it.
+func (c StateCheck) Held() bool {
+	if c.Observed == nil || *c.Observed == c.Expected {
+		return true
+	}
+	for _, v := range c.Allowed {
+		if *c.Observed == v {
+			return true
+		}
+	}
+	return false
 }
 
 type ResponseCheck struct {
@@ -53,6 +86,22 @@ type ConcurrentResponseCheck struct {
 	NoServerErrors  bool     `json:"no_server_errors,omitempty"`
 	Passed          bool     `json:"passed"`
 	Issues          []string `json:"issues,omitempty"`
+}
+
+// CrashPointCheck describes a crash in the middle of a request: when the
+// service was killed, and what state the write was left in.
+type CrashPointCheck struct {
+	// DelayMS is how long after the request was sent the kill was issued.
+	DelayMS float64 `json:"delay_ms"`
+	// ReplyReceived is true when the service answered before it died, which
+	// makes the write acknowledged: it must have survived.
+	ReplyReceived bool `json:"reply_received"`
+	// Outcome is what the restarted service showed before any retry:
+	// "applied", "not-applied", "partial" (some effects but not others), or
+	// "unexpected" (a value that is neither before nor after).
+	Outcome string   `json:"outcome"`
+	Passed  bool     `json:"passed"`
+	Issues  []string `json:"issues,omitempty"`
 }
 
 type KeyReuseCheck struct {
@@ -77,6 +126,7 @@ type Report struct {
 	RetryResponse      *ResponseCheck           `json:"retry_response,omitempty"`
 	ConcurrentResponse *ConcurrentResponseCheck `json:"concurrent_response,omitempty"`
 	KeyReuseResponse   *KeyReuseCheck           `json:"key_reuse_response,omitempty"`
+	CrashPoint         *CrashPointCheck         `json:"crash_point,omitempty"`
 	FaultInjected      bool                     `json:"fault_injected"`
 	Attempts           []Attempt                `json:"attempts"`
 	Events             []Event                  `json:"events"`
@@ -88,8 +138,11 @@ func (r *Report) event(step, detail string) {
 }
 
 func runKeyReuse(ctx context.Context, request config.Request, changedBody json.RawMessage, expectedStatus int, r *Report) error {
-	firstStatus, firstErr := send(ctx, request, request.URL)
-	r.Attempts = append(r.Attempts, Attempt{Kind: "original", HTTPStatus: firstStatus, ClientError: errorString(firstErr)})
+	start := time.Now()
+	firstStatus, _, firstWait, firstErr := sendTimed(ctx, request, request.URL, false)
+	first := newAttempt("original", firstStatus, firstErr, start)
+	first.ServerMS = millis(firstWait)
+	r.Attempts = append(r.Attempts, first)
 	if firstErr != nil {
 		return fmt.Errorf("original request: %w", firstErr)
 	}
@@ -101,8 +154,9 @@ func runKeyReuse(ctx context.Context, request config.Request, changedBody json.R
 	changedRequest := request
 	changedRequest.Body = changedBody
 	r.event("key reuse", "sent a changed JSON body with the same method, URL, and Idempotency-Key")
+	start = time.Now()
 	changedStatus, changedErr := send(ctx, changedRequest, changedRequest.URL)
-	r.Attempts = append(r.Attempts, Attempt{Kind: "changed-payload", HTTPStatus: changedStatus, ClientError: errorString(changedErr)})
+	r.Attempts = append(r.Attempts, newAttempt("changed-payload", changedStatus, changedErr, start))
 	if changedErr != nil {
 		return fmt.Errorf("changed-payload request: %w", changedErr)
 	}
@@ -173,7 +227,11 @@ func Run(parent context.Context, c config.Config) (r Report) {
 			return r
 		}
 		expected := baseline + *o.ExpectedDelta
-		r.Checks = append(r.Checks, StateCheck{Name: label, Baseline: baseline, Expected: expected})
+		check := StateCheck{Name: label, Baseline: baseline, Expected: expected}
+		if o.Counts() == config.MeasureLength {
+			check.Measure = config.MeasureLength
+		}
+		r.Checks = append(r.Checks, check)
 		if len(observations) == 1 {
 			r.Baseline = &baseline
 			r.Expected = &expected
@@ -188,14 +246,19 @@ func Run(parent context.Context, c config.Config) (r Report) {
 		err = runConcurrent(ctx, c.Request, c.Workers(), c.ConcurrentResponse, &r)
 	case "crash-after-ack":
 		err = runCrashAfterAck(ctx, c.Request, c.RetryResponse, managed, observations, &r)
+	case "crash-mid-request":
+		err = runCrashMidRequest(ctx, c.Request, c.RetryResponse, managed, observations, c.CrashAfter(), &r)
 	case "key-reuse":
 		err = runKeyReuse(ctx, c.Request, c.ChangedBody, c.ReuseStatus(), &r)
 	}
 	var mismatches []string
 	for _, check := range r.AfterRestartChecks {
-		if check.Observed != nil && *check.Observed != check.Expected {
-			mismatches = append(mismatches, fmt.Sprintf("%s after restart expected %d, observed %d", check.Name, check.Expected, *check.Observed))
+		if !check.Held() {
+			mismatches = append(mismatches, fmt.Sprintf("%s after restart expected %s, observed %d", check.Name, wanted(check), *check.Observed))
 		}
+	}
+	if r.CrashPoint != nil {
+		mismatches = append(mismatches, r.CrashPoint.Issues...)
 	}
 	if err != nil {
 		if len(mismatches) > 0 {
@@ -255,8 +318,9 @@ func runConcurrent(ctx context.Context, request config.Request, workers int, res
 		go func(index int) {
 			defer group.Done()
 			<-start
+			sent := time.Now()
 			status, err := send(ctx, request, request.URL)
-			results[index] = Attempt{Kind: fmt.Sprintf("copy-%02d", index+1), HTTPStatus: status, ClientError: errorString(err)}
+			results[index] = newAttempt(fmt.Sprintf("copy-%02d", index+1), status, err, sent)
 		}(i)
 	}
 	close(start)
@@ -312,8 +376,9 @@ func runLostResponse(ctx context.Context, request config.Request, responseRule *
 	}
 	defer proxy.Close()
 	r.event("fault", "proxy will forward the operation, read the upstream response, then close the client connection without delivering it")
+	start := time.Now()
 	status, clientErr := send(ctx, request, proxy.URL())
-	r.Attempts = append(r.Attempts, Attempt{Kind: "original", HTTPStatus: status, ClientError: errorString(clientErr)})
+	r.Attempts = append(r.Attempts, newAttempt("original", status, clientErr, start))
 	var original proxyResult
 	select {
 	case result := <-proxy.result:
@@ -332,8 +397,9 @@ func runLostResponse(ctx context.Context, request config.Request, responseRule *
 	case <-ctx.Done():
 		return fmt.Errorf("wait for fault proxy: %w", ctx.Err())
 	}
+	start = time.Now()
 	retryStatus, retryBody, retryErr := sendWithBody(ctx, request, request.URL, captureResponse)
-	r.Attempts = append(r.Attempts, Attempt{Kind: "retry", HTTPStatus: retryStatus, ClientError: errorString(retryErr)})
+	r.Attempts = append(r.Attempts, newAttempt("retry", retryStatus, retryErr, start))
 	if retryErr != nil {
 		return fmt.Errorf("retry request: %w", retryErr)
 	}
@@ -353,8 +419,11 @@ func runLostResponse(ctx context.Context, request config.Request, responseRule *
 
 func runCrashAfterAck(ctx context.Context, request config.Request, responseRule *config.RetryResponse, managed *process, observations []config.Observation, r *Report) error {
 	captureResponse := capturesReply(responseRule)
-	status, originalBody, err := sendWithBody(ctx, request, request.URL, captureResponse)
-	r.Attempts = append(r.Attempts, Attempt{Kind: "original", HTTPStatus: status, ClientError: errorString(err)})
+	start := time.Now()
+	status, originalBody, wait, err := sendTimed(ctx, request, request.URL, captureResponse)
+	original := newAttempt("original", status, err, start)
+	original.ServerMS = millis(wait)
+	r.Attempts = append(r.Attempts, original)
 	if err != nil {
 		return fmt.Errorf("original request: %w", err)
 	}
@@ -382,8 +451,9 @@ func runCrashAfterAck(ctx context.Context, request config.Request, responseRule 
 			r.AfterRestartChecks = append(r.AfterRestartChecks, check)
 			r.event("after restart", fmt.Sprintf("%s: expected %d, observed %d before retry", check.Name, check.Expected, value))
 		}
+		start = time.Now()
 		retryStatus, retryBody, retryErr := sendWithBody(ctx, request, request.URL, captureResponse)
-		r.Attempts = append(r.Attempts, Attempt{Kind: "retry", HTTPStatus: retryStatus, ClientError: errorString(retryErr)})
+		r.Attempts = append(r.Attempts, newAttempt("retry", retryStatus, retryErr, start))
 		if retryErr != nil {
 			return fmt.Errorf("retry after restart: %w", retryErr)
 		}
@@ -400,6 +470,22 @@ func runCrashAfterAck(ctx context.Context, request config.Request, responseRule 
 		}
 	}
 	return nil
+}
+
+// wanted names the acceptable values of a check: "1", or "0 or 1".
+func wanted(c StateCheck) string {
+	values := []int64{c.Expected}
+	for _, v := range c.Allowed {
+		if !slices.Contains(values, v) {
+			values = append(values, v)
+		}
+	}
+	slices.Sort(values)
+	parts := make([]string, len(values))
+	for i, v := range values {
+		parts[i] = strconv.FormatInt(v, 10)
+	}
+	return strings.Join(parts, " or ")
 }
 
 func capturesReply(rule *config.RetryResponse) bool {
@@ -419,13 +505,30 @@ func send(ctx context.Context, req config.Request, target string) (int, error) {
 }
 
 func sendWithBody(ctx context.Context, req config.Request, target string, capture bool) (int, []byte, error) {
+	status, body, _, err := sendTimed(ctx, req, target, capture)
+	return status, body, err
+}
+
+// sendTimed also reports how long the service took to start answering,
+// measured from the moment the request had been written.
+func sendTimed(ctx context.Context, req config.Request, target string, capture bool) (status int, data []byte, wait time.Duration, err error) {
 	var body io.Reader
 	if len(req.Body) > 0 {
 		body = bytes.NewReader(req.Body)
 	}
+	var wrote, answered atomic.Int64
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteRequest:         func(httptrace.WroteRequestInfo) { wrote.CompareAndSwap(0, time.Now().UnixNano()) },
+		GotFirstResponseByte: func() { answered.CompareAndSwap(0, time.Now().UnixNano()) },
+	})
+	defer func() {
+		if w, a := wrote.Load(), answered.Load(); w > 0 && a > w {
+			wait = time.Duration(a - w)
+		}
+	}()
 	httpReq, err := http.NewRequestWithContext(ctx, strings.ToUpper(req.Method), target, body)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, 0, err
 	}
 	setHeaders(httpReq, req.Headers)
 	if body != nil && httpReq.Header.Get("Content-Type") == "" {
@@ -436,23 +539,23 @@ func sendWithBody(ctx context.Context, req config.Request, target string, captur
 	client := localClient()
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, 0, err
 	}
 	defer resp.Body.Close()
 	if capture {
 		data, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
 		if err != nil {
-			return resp.StatusCode, nil, fmt.Errorf("read response body: %w", err)
+			return resp.StatusCode, nil, 0, fmt.Errorf("read response body: %w", err)
 		}
 		if len(data) > 1<<20 {
-			return resp.StatusCode, nil, errors.New("response body exceeds 1 MiB")
+			return resp.StatusCode, nil, 0, errors.New("response body exceeds 1 MiB")
 		}
-		return resp.StatusCode, data, nil
+		return resp.StatusCode, data, 0, nil
 	}
 	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-		return resp.StatusCode, nil, fmt.Errorf("read response body: %w", err)
+		return resp.StatusCode, nil, 0, fmt.Errorf("read response body: %w", err)
 	}
-	return resp.StatusCode, nil, nil
+	return resp.StatusCode, nil, 0, nil
 }
 
 // setHeaders applies scenario headers. Go sends the Host header from the

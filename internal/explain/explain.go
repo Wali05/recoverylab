@@ -36,6 +36,8 @@ func Report(r engine.Report) Diagnosis {
 			return concurrent(r)
 		case "crash-after-ack":
 			return crash(r)
+		case "crash-mid-request":
+			return midRequest(r)
 		case "key-reuse":
 			return keyReuse(r)
 		}
@@ -56,17 +58,48 @@ func pass(r engine.Report) Diagnosis {
 			return Diagnosis{Summary: "The acknowledged write survived a crash, and the retry after restart did not repeat it."}
 		}
 		return Diagnosis{Summary: "The acknowledged write survived a process crash and restart."}
+	case "crash-mid-request":
+		cp := r.CrashPoint
+		switch {
+		case cp != nil && cp.ReplyReceived:
+			return Diagnosis{Summary: "The service answered just before it was killed. The write survived, and the retry did not repeat it."}
+		case cp != nil && cp.Outcome == "not-applied":
+			return Diagnosis{Summary: "The service was killed mid-request before anything was written, and the retry then did the write exactly once."}
+		}
+		return Diagnosis{Summary: "The service was killed mid-request after the write had committed, and the retry did not repeat it."}
 	case "key-reuse":
 		return Diagnosis{Summary: "Reusing the key for a different request was rejected and nothing extra was written."}
 	}
 	return Diagnosis{Summary: "Every declared check held."}
 }
 
+// CrashSweep sums up several crash-mid-request runs that all passed. It says
+// how many kills really landed mid-request, because a pass where every kill
+// came after the reply only repeats what crash-after-ack already showed.
+func CrashSweep(reports []engine.Report) Diagnosis {
+	kills, mid := 0, 0
+	for _, r := range reports {
+		if r.CrashPoint != nil {
+			kills++
+			if !r.CrashPoint.ReplyReceived {
+				mid++
+			}
+		}
+	}
+	switch {
+	case kills <= 1:
+		return pass(reports[0])
+	case mid == 0:
+		return Diagnosis{Summary: fmt.Sprintf("The service was killed %d times, but it answered before every kill, so none landed mid-request. Each acknowledged write survived and no retry repeated it.", kills)}
+	}
+	return Diagnosis{Summary: fmt.Sprintf("The service was killed at %d different moments, %d of them mid-request. The write was never left half-done, and every retry finished it exactly once.", kills, mid)}
+}
+
 // missed returns the first check that didn't hold. Checks keep scenario order,
 // so this is the effect the user listed first.
 func missed(checks []engine.StateCheck) (engine.StateCheck, bool) {
 	for _, c := range checks {
-		if c.Observed != nil && *c.Observed != c.Expected {
+		if !c.Held() {
 			return c, true
 		}
 	}
@@ -93,7 +126,7 @@ func unchanged(checks []engine.StateCheck) (Diagnosis, bool) {
 	if !ok || *c.Observed != c.Baseline {
 		return Diagnosis{}, false
 	}
-	return Diagnosis{
+	d := Diagnosis{
 		Summary: fmt.Sprintf("The service answered 2xx, but %s didn't change at all.", label(c)),
 		Learn:   guide("reply-after-the-write-commits"),
 		Cause:   "Either the write happens later (a queue or background job), or the state endpoint isn't measuring what this request writes. RecoveryLab reads state as soon as the requests finish.",
@@ -101,7 +134,23 @@ func unchanged(checks []engine.StateCheck) (Diagnosis, bool) {
 			"Check that the state URL and pointer reflect this request: send it once with curl and watch the value.",
 			"If the write is asynchronous, reply only after it commits, or answer 202 and expose a count that includes pending work.",
 		},
-	}, true
+	}
+	if c.Measure == "length" && fullPage(c.Baseline) {
+		// A full page stays the same length however many rows exist.
+		d.Cause = fmt.Sprintf("The list already had %d items, which looks like one full page. A page that is full stays the same length when something is added. Otherwise: ", c.Baseline) +
+			strings.ToLower(d.Cause[:1]) + d.Cause[1:]
+		d.Fixes = append([]string{"Count a total instead of a page: point at a field such as /total, or ask for a page larger than the test data (for example ?limit=1000)."}, d.Fixes...)
+	}
+	return d, true
+}
+
+// fullPage reports whether n is a common default page size.
+func fullPage(n int64) bool {
+	switch n {
+	case 10, 15, 20, 25, 30, 50, 100, 200, 250, 500, 1000:
+		return true
+	}
+	return false
 }
 
 func lostResponse(r engine.Report) Diagnosis {
@@ -234,6 +283,93 @@ func crash(r engine.Report) Diagnosis {
 			}
 		}
 		return Diagnosis{Summary: "After the crash, " + effects(c) + "."}
+	}
+	return retryReply(r, "crash-after-ack")
+}
+
+// midRequest explains a crash while the request was still being handled. It
+// reads the outcome in order: what the crash left behind, then what the
+// retry did about it.
+func midRequest(r engine.Report) Diagnosis {
+	cp := r.CrashPoint
+	if cp == nil {
+		return Diagnosis{Summary: "A declared check failed."}
+	}
+	if cp.Outcome == "partial" {
+		var done, undone []string
+		for _, c := range r.AfterRestartChecks {
+			if c.Observed == nil || c.Baseline == c.Expected {
+				continue
+			}
+			if *c.Observed == c.Expected {
+				done = append(done, label(c))
+			} else {
+				undone = append(undone, label(c))
+			}
+		}
+		d := Diagnosis{
+			Summary: fmt.Sprintf("The crash left a half-finished write: %s changed but %s did not.", strings.Join(done, ", "), strings.Join(undone, ", ")),
+			Learn:   guide("commit-every-effect-together"),
+			Cause:   "These effects aren't committed together. The handler finished one write and the process died before the next, and nothing rolls the first one back.",
+			Fixes: []string{
+				"Put every write for one request in a single database transaction, so a crash leaves all of them or none.",
+				"If one effect lives in another system (a payment provider, a queue), record the intent in that same transaction and finish it on recovery.",
+			},
+		}
+		if _, still := missed(r.Checks); still {
+			d.Cause += " The retry didn't repair it either: the key was already recorded, so the service treated the request as done."
+		}
+		return d
+	}
+	if c, ok := missed(r.AfterRestartChecks); ok {
+		if cp.ReplyReceived && *c.Observed < c.Expected {
+			return lostAck(c, true)
+		}
+		return Diagnosis{
+			Summary: fmt.Sprintf("After the crash, %s was %d, which is neither the value before the request (%d) nor after it (%d).", label(c), *c.Observed, c.Baseline, c.Expected),
+			Cause:   "Recovery left the data in a state no request could have produced, or expected_delta doesn't match what one request does.",
+			Fixes:   []string{"Check expected_delta first. If it's right, look at what the service does on startup with work it finds unfinished."},
+		}
+	}
+	// From here on the crash itself was survived cleanly; the retry went wrong.
+	// A refused retry comes first: it also leaves the write undone, and the
+	// refusal is the better clue to why.
+	if rr := r.RetryResponse; rr != nil && !rr.Passed && !statusAllowed(rr) && cp.Outcome == "not-applied" {
+		return Diagnosis{
+			Summary: fmt.Sprintf("The crash stopped the write before it happened, and the retry was refused with HTTP %d.", rr.RetryHTTPStatus),
+			Learn:   guide("dont-leave-a-key-claimed-by-a-dead-request"),
+			Cause:   "The request that died left its key marked as in progress, and nothing clears it. Every retry now collides with a request that no longer exists.",
+			Fixes: []string{
+				"Claim the key in the same transaction as the work, so a crash rolls both back.",
+				"Or give an in-progress claim a timeout, and let a retry take it over once the request that made it is gone.",
+			},
+		}
+	}
+	if c, ok := missed(r.Checks); ok {
+		switch {
+		case *c.Observed > c.Expected:
+			return Diagnosis{
+				Summary: "The write committed before the crash, and the retry ran it again (" + effects(c) + ").",
+				Learn:   guide("store-the-key-with-the-effect"),
+				Cause:   "The work was saved but its idempotency key wasn't, so after the restart the retry looked like a new request. Either the two are written separately, or keys live in memory.",
+				Fixes:   []string{"Write the key and the effect in the same transaction, in the same durable store."},
+			}
+		case cp.Outcome == "not-applied":
+			d := Diagnosis{
+				Summary: "The crash stopped the write before it happened, and the retry was told it was done (" + effects(c) + ").",
+				Learn:   guide("dont-leave-a-key-claimed-by-a-dead-request"),
+				Cause:   "The key was saved before the work it stands for. After the restart the service found the key and assumed the work existed.",
+				Fixes: []string{
+					"Save the key and the effect in one transaction. A key must never be visible without its effect.",
+					"If the key has to be claimed first, mark it in progress and let a retry redo the work when the request that claimed it is gone.",
+				},
+			}
+			if rr := r.RetryResponse; rr != nil {
+				d.Summary = fmt.Sprintf("The crash stopped the write before it happened, and the retry got HTTP %d without doing it (%s).", rr.RetryHTTPStatus, effects(c))
+			}
+			return d
+		}
+		return Diagnosis{Summary: "After the crash and the retry, " + effects(c) + "."}
 	}
 	return retryReply(r, "crash-after-ack")
 }

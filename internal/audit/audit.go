@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wali05/recoverylab/internal/config"
 	"github.com/Wali05/recoverylab/internal/engine"
@@ -25,7 +27,24 @@ type Step struct {
 	Note       string
 	SkipReason string
 	Config     config.Config
+	// Sweep makes each run differ: it returns the config for run i, given
+	// how long the service took to answer earlier in this audit (zero when
+	// nothing measured it) and this step's runs so far.
+	Sweep func(i int, typical time.Duration, prior []engine.Report) config.Config
 }
+
+// Options sets how hard an audit tries to catch failures that don't show up
+// every time.
+type Options struct {
+	// Bursts is how many concurrent bursts to send.
+	Bursts int
+	// CrashPoints is how many times to kill the service mid-request, each
+	// at a different moment. Zero leaves the check out.
+	CrashPoints int
+}
+
+// DefaultOptions is what "recoverylab audit" uses without flags.
+var DefaultOptions = Options{Bursts: 5, CrashPoints: 6}
 
 type Result struct {
 	Scenario   string             `json:"scenario"`
@@ -58,18 +77,21 @@ var titles = map[string]string{
 	"concurrent-duplicates": "Concurrent duplicates",
 	"key-reuse":             "Key reuse",
 	"crash-after-ack":       "Crash after ack",
+	"crash-mid-request":     "Crash mid-request",
 }
 
 // Plan derives one scenario per failure from a base config. The base can
 // name any scenario, or none; settings that belong to a single scenario are
 // only carried into that one.
-func Plan(base config.Config, bursts int) []Step {
+func Plan(base config.Config, opts Options) []Step {
+	bursts := opts.Bursts
 	clean := base
 	clean.Concurrency = 0
 	clean.ConcurrentResponse = nil
 	clean.RetryResponse = nil
 	clean.ChangedBody = nil
 	clean.ExpectedReuseStatus = 0
+	clean.CrashDelay = ""
 
 	lost := clean
 	lost.Scenario = "lost-response"
@@ -121,6 +143,25 @@ func Plan(base config.Config, bursts int) []Step {
 	}
 	steps = append(steps, step)
 
+	// Kill the service while it is still handling the write, at several
+	// different moments, because the dangerous window is usually narrow.
+	mid := clean
+	mid.Scenario = "crash-mid-request"
+	mid.RetryResponse = withIDs(base.RetryResponse)
+	step = Step{Scenario: mid.Scenario, Runs: opts.CrashPoints, Config: mid}
+	step.Sweep = func(i int, typical time.Duration, prior []engine.Report) config.Config {
+		c := mid
+		c.CrashDelay = crashDelay(i, opts.CrashPoints, replyTime(typical, prior)).String()
+		return c
+	}
+	switch {
+	case base.Service == nil:
+		step.SkipReason = `Add a "service" block so RecoveryLab can start, kill, and restart your process.`
+	case opts.CrashPoints <= 0:
+		step.SkipReason = "Turned off with --crash-points 0."
+	}
+	steps = append(steps, step)
+
 	for i := range steps {
 		steps[i].Title = titles[steps[i].Scenario]
 		if steps[i].SkipReason == "" {
@@ -130,6 +171,38 @@ func Plan(base config.Config, bursts int) []Step {
 		}
 	}
 	return steps
+}
+
+// crashDelay spreads n kill points across a request. When something has
+// measured how long the service takes to answer, the points sit evenly
+// between "the request just arrived" and that time, which is where a
+// half-finished write can be caught. Without a measurement they double from
+// zero: 0, 1 ms, 2 ms, 4 ms, and so on.
+func crashDelay(i, n int, reply time.Duration) time.Duration {
+	if reply <= 0 {
+		if i == 0 {
+			return 0
+		}
+		return time.Millisecond << min(i-1, 14)
+	}
+	d := time.Duration(float64(reply) * float64(i) / float64(max(n, 1)))
+	return min(d, 30*time.Second).Round(time.Microsecond)
+}
+
+// replyTime narrows the estimate as the sweep goes: a kill that arrived
+// after the reply shows how quickly this service can answer, and a later
+// kill has to come sooner than that to land mid-request.
+func replyTime(typical time.Duration, prior []engine.Report) time.Duration {
+	for _, r := range prior {
+		if r.CrashPoint == nil || !r.CrashPoint.ReplyReceived {
+			continue
+		}
+		seen := time.Duration(r.CrashPoint.DelayMS * float64(time.Millisecond))
+		if seen > 0 && (typical <= 0 || seen < typical) {
+			typical = seen
+		}
+	}
+	return typical
 }
 
 // withIDs asks a retry to return the same IDs as the original reply, unless
@@ -146,19 +219,15 @@ func withIDs(rule *config.RetryResponse) *config.RetryResponse {
 }
 
 func hasKey(headers map[string]string) bool {
-	for k, v := range headers {
-		if strings.EqualFold(k, "Idempotency-Key") && strings.TrimSpace(v) != "" {
-			return true
-		}
-	}
-	return false
+	_, ok := config.IdempotencyKey(headers)
+	return ok
 }
 
 // ChangeBody makes the smallest real change to a JSON body so the audit can
 // reuse its key for a different request: the first number goes up by one, or
 // failing that the first string changes, or the first boolean flips. Strings
-// carrying {{run_id}} are changed only as a last resort, because they may be
-// how the service identifies the operation.
+// carrying {{run_id}} or {{uuid}} are changed only as a last resort, because
+// they may be how the service identifies the operation.
 func ChangeBody(body json.RawMessage) (json.RawMessage, string, error) {
 	if len(body) == 0 {
 		return nil, "", fmt.Errorf("the request has no JSON body to change; add changed_body to test key reuse")
@@ -223,7 +292,7 @@ func mutate(node *any, pointer, kind string) (string, string, bool) {
 		}
 		return pointer, fmt.Sprintf("from %s to %s", v, *node), true
 	case string:
-		templated := strings.Contains(v, "{{run_id}}")
+		templated := strings.Contains(v, "{{run_id}}") || strings.Contains(v, "{{uuid}}")
 		if (kind == "string" && templated) || (kind == "run-string" && !templated) || (kind != "string" && kind != "run-string") {
 			return "", "", false
 		}
@@ -248,16 +317,42 @@ func mutate(node *any, pointer, kind string) (string, string, bool) {
 // Run executes the plan in order. progress, when set, is called as each
 // step finishes so the caller can print results as they arrive.
 func Run(ctx context.Context, base config.Config, steps []Step, progress func(Result)) Report {
+	return RunWith(ctx, base, steps, Hooks{Done: progress})
+}
+
+// Hooks lets a caller follow an audit while it runs. Any of them may be nil.
+type Hooks struct {
+	// Start is called before a step's first run. Skipped steps don't start.
+	Start func(step Step)
+	// Tick is called after each run with how many are done.
+	Tick func(step Step, done int)
+	// Done is called with each step's result, skipped ones included.
+	Done func(Result)
+}
+
+// RunWith is Run with hooks for live progress.
+func RunWith(ctx context.Context, base config.Config, steps []Step, hooks Hooks) Report {
 	report := Report{Name: base.Name, Method: strings.ToUpper(base.Request.Method), URL: base.Request.URL, Status: "PASS"}
+	var waits []time.Duration
 	for _, step := range steps {
 		result := Result{Scenario: step.Scenario, Title: step.Title, Note: step.Note}
 		if step.SkipReason != "" {
 			result.Status, result.Reason = "SKIPPED", step.SkipReason
 			report.Skipped++
 		} else {
-			for i := 0; i < step.Runs; i++ {
-				r := engine.Run(ctx, step.Config)
+			if hooks.Start != nil {
+				hooks.Start(step)
+			}
+			for i := 0; i < step.Runs && (i == 0 || ctx.Err() == nil); i++ {
+				c := step.Config
+				if step.Sweep != nil {
+					c = step.Sweep(i, median(waits), result.Reports)
+				}
+				r := engine.Run(ctx, c)
 				result.Reports = append(result.Reports, r)
+				if wait := serverTime(r); wait > 0 {
+					waits = append(waits, wait)
+				}
 				switch r.Status {
 				case "PASS":
 					result.Passed++
@@ -265,6 +360,9 @@ func Run(ctx context.Context, base config.Config, steps []Step, progress func(Re
 					result.Violations++
 				default:
 					result.Errors++
+				}
+				if hooks.Tick != nil {
+					hooks.Tick(step, i+1)
 				}
 			}
 			result.Runs = len(result.Reports)
@@ -275,6 +373,12 @@ func Run(ctx context.Context, base config.Config, steps []Step, progress func(Re
 				result.Status = "ERROR"
 			}
 			d := explain.Report(first(result))
+			if step.Scenario == "crash-mid-request" {
+				result.Note = crashNote(result.Reports)
+				if result.Status == "PASS" {
+					d = explain.CrashSweep(result.Reports)
+				}
+			}
 			result.Diagnosis = &d
 			switch result.Status {
 			case "PASS":
@@ -286,8 +390,8 @@ func Run(ctx context.Context, base config.Config, steps []Step, progress func(Re
 			}
 		}
 		report.Results = append(report.Results, result)
-		if progress != nil {
-			progress(result)
+		if hooks.Done != nil {
+			hooks.Done(result)
 		}
 	}
 	if report.Violations > 0 {
@@ -296,6 +400,65 @@ func Run(ctx context.Context, base config.Config, steps []Step, progress func(Re
 		report.Status = "ERROR"
 	}
 	return report
+}
+
+// serverTime is how long the service took to answer the write in a run, or
+// zero if the run didn't measure it.
+func serverTime(r engine.Report) time.Duration {
+	for _, a := range r.Attempts {
+		if a.Kind == "original" && a.ClientError == "" && a.HTTPStatus >= 200 && a.HTTPStatus < 300 && a.ServerMS > 0 {
+			return time.Duration(a.ServerMS * float64(time.Millisecond))
+		}
+	}
+	return 0
+}
+
+func median(values []time.Duration) time.Duration {
+	if len(values) == 0 {
+		return 0
+	}
+	sorted := slices.Clone(values)
+	slices.Sort(sorted)
+	return sorted[len(sorted)/2]
+}
+
+// crashNote says where the kills landed, so a pass can be read for what it
+// is: "6 kills" means little if every one of them came after the reply.
+func crashNote(reports []engine.Report) string {
+	kills, before := 0, 0
+	lo, hi := math.Inf(1), 0.0
+	for _, r := range reports {
+		if r.CrashPoint == nil {
+			continue
+		}
+		kills++
+		if !r.CrashPoint.ReplyReceived {
+			before++
+		}
+		lo, hi = math.Min(lo, r.CrashPoint.DelayMS), math.Max(hi, r.CrashPoint.DelayMS)
+	}
+	if kills == 0 {
+		return ""
+	}
+	when := fmt.Sprintf("%s to %s ms in", ms(lo), ms(hi))
+	if kills == 1 {
+		when = ms(lo) + " ms in"
+	}
+	return fmt.Sprintf("%d %s, %s; %d landed before the reply", kills, plural(kills, "kill", "kills"), when, before)
+}
+
+func ms(v float64) string {
+	if v < 10 {
+		return strconv.FormatFloat(math.Round(v*10)/10, 'f', -1, 64)
+	}
+	return strconv.FormatFloat(math.Round(v), 'f', -1, 64)
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // FromRuns wraps repeated runs of one scenario in an audit report, so every

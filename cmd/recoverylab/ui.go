@@ -120,6 +120,10 @@ func printReport(w io.Writer, s style, r engine.Report) {
 		fmt.Fprintln(w)
 	}
 	printChecks(w, s, "after restart", r.AfterRestartChecks)
+	if cp := r.CrashPoint; cp != nil && cp.Outcome == "partial" {
+		// Each value above is fine alone; the problem is that they disagree.
+		fmt.Fprintf(w, "  %s %s\n\n", s.red("✗"), s.red("these disagree: part of the write happened and part did not"))
+	}
 	printChecks(w, s, "", r.Checks)
 	if r.Status == "PASS" {
 		fmt.Fprintf(w, "  %s\n\n", s.green(explain.Report(r).Summary))
@@ -143,10 +147,15 @@ func printChecks(w io.Writer, s style, suffix string, checks []engine.StateCheck
 			name += " (" + suffix + ")"
 		}
 		mark, value := s.green("✓"), fmt.Sprint(*c.Observed)
-		if *c.Observed != c.Expected {
+		if !c.Held() {
 			mark, value = s.red("✗"), s.red(value)
 		}
-		fmt.Fprintf(w, "  %s %-26s %d → %s  %s\n", mark, name, c.Baseline, value, s.dim(fmt.Sprintf("expected %d", c.Expected)))
+		expected := fmt.Sprintf("expected %d", c.Expected)
+		if len(c.Allowed) > 0 {
+			// After a crash mid-request the write may or may not have happened.
+			expected = fmt.Sprintf("%d or %d are both fine here", c.Baseline, c.Expected)
+		}
+		fmt.Fprintf(w, "  %s %-26s %d → %s  %s\n", mark, name, c.Baseline, value, s.dim(expected))
 		printed = true
 	}
 	if printed {

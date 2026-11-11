@@ -193,3 +193,13 @@ func TestRequiredWithoutASchemaIsLeftOut(t *testing.T) {
 		t.Errorf("allOf lost the declared value: %s", got)
 	}
 }
+
+func TestUUIDsAreFreshPerRun(t *testing.T) {
+	if got := example(t, `{"type":"string","format":"uuid"}`); got != `"{{uuid}}"` {
+		t.Errorf("uuid: %s", got)
+	}
+	// Too short for a UUID: fall back to something that fits.
+	if got := example(t, `{"type":"string","format":"uuid","maxLength":8}`); got != `"00000000"` {
+		t.Errorf("short uuid: %s", got)
+	}
+}

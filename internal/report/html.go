@@ -23,7 +23,13 @@ var tmpl = template.Must(template.New("report").Funcs(template.FuncMap{
 	"mark": func(s string) string {
 		return map[string]string{"PASS": "✓", "VIOLATION": "✗", "ERROR": "!", "SKIPPED": "–"}[s]
 	},
-	"pick":  pick,
+	"pick": pick,
+	"wanted": func(c engine.StateCheck) string {
+		if len(c.Allowed) > 0 && c.Baseline != c.Expected {
+			return fmt.Sprintf("%d or %d", c.Baseline, c.Expected)
+		}
+		return fmt.Sprint(c.Expected)
+	},
 	"ran":   func(r audit.Report) int { return r.Held + r.Violations + r.Errors },
 	"tally": tally,
 }).Parse(page))

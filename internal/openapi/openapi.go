@@ -416,7 +416,7 @@ func number(v any) (float64, bool) {
 	return f, err == nil
 }
 
-// stringExample includes {{run_id}} where it can, so fields with a unique
+// stringExample includes {{run_id}} or {{uuid}} where it can, so fields with a unique
 // constraint (email, username, SKU) don't collide on the next run. The retry
 // inside one run still sends exactly the same body.
 func stringExample(s map[string]any) string {
@@ -430,17 +430,18 @@ func stringExample(s map[string]any) string {
 	case "date":
 		value = time.Now().UTC().Format("2006-01-02")
 	case "uuid":
-		value = "00000000-0000-4000-8000-000000000000"
+		// A fixed UUID would collide with itself on the second run.
+		value, plain = "{{uuid}}", "00000000-0000-4000-8000-000000000000"
 	case "uri", "url":
 		value, plain = "https://example.com/recoverylab/{{run_id}}", "https://example.com/recoverylab"
 	case "ipv4":
 		value = "127.0.0.1"
 	}
-	if !strings.Contains(value, "{{run_id}}") {
+	if !strings.Contains(value, "{{") {
 		plain = value
 	}
-	// A run ID is 16 characters once filled in.
-	length := len(strings.ReplaceAll(value, "{{run_id}}", strings.Repeat("x", 16)))
+	// Once filled in, a run ID is 16 characters and a UUID is 36.
+	length := len(strings.NewReplacer("{{run_id}}", strings.Repeat("x", 16), "{{uuid}}", strings.Repeat("x", 36)).Replace(value))
 	if max, ok := number(s["maxLength"]); ok && max > 0 && float64(length) > max {
 		value = plain
 		if len(value) > int(max) {

@@ -94,7 +94,7 @@ Usage:
   recoverylab demo
   recoverylab discover --base http://127.0.0.1:8000 [--openapi URL|FILE] [--out DIR]
   recoverylab init --url WRITE_URL --state STATE_URL [--body JSON] [--out FILE]
-  recoverylab audit [--bursts N] [--format text|json] [--output AUDIT.json] SCENARIO.json|DIR ...
+  recoverylab audit [--bursts N] [--crash-points N] [--format text|json] SCENARIO.json|DIR ...
   recoverylab run [--format text|json] [--output REPORT.json] [--repeat N] SCENARIO.json
   recoverylab validate SCENARIO.json
   recoverylab fixture [--mode MODE] [--listen 127.0.0.1:8080] [--journal FILE]
@@ -113,7 +113,8 @@ Failures:
   lost-response          Hide an acknowledged response, retry, and verify state.
   concurrent-duplicates  Send 2–64 copies at once and verify state.
   key-reuse              Change the body, reuse its key, and check rejection and state.
-  crash-after-ack        Kill and restart a managed service; optionally retry afterward.
+  crash-after-ack        Kill a managed service after it answers, restart it, and retry.
+  crash-mid-request      Kill it while it handles the request; nothing may be left half-done.
 
 Reports:
   audit and run also take --html FILE.html for a report you can share,
@@ -331,7 +332,7 @@ func demoResult(r engine.Report) string {
 func serveFixture(args []string) int {
 	fs := flag.NewFlagSet("fixture", flag.ContinueOnError)
 	listen := fs.String("listen", "127.0.0.1:8080", "listen address")
-	mode := fs.String("mode", "correct", "correct, duplicate-bug, race-bug, early-ack-bug, replay-bug, or repair-after-crash-bug")
+	mode := fs.String("mode", "correct", "one of: "+strings.Join(fixture.Modes, ", "))
 	journal := fs.String("journal", "journal.jsonl", "persistent journal path")
 	if err := fs.Parse(args); err != nil {
 		return flagExit(err)
