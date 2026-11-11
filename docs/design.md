@@ -39,9 +39,27 @@ start service → ready probe → baseline → POST → 2xx response
                                           retry same request → final state
 ```
 
-RecoveryLab manages a foreground process and forcibly kills it after receiving the operation's successful response. It then starts the same command again. This probes whether an *acknowledged* effect survived that application process crash. When `retry_response` is present, it reads each declared state value **before** resending the same request. It compares the retry reply and reads state again afterward. The first check matters: otherwise a retry that recreates a lost write could make the final count look correct. Without `retry_response`, the original durability-only check still reads state once after restart. RecoveryLab does not kill an external database, simulate a machine power loss or disk failure, or crash at every possible instruction. Testing a precise in-operation crash point would require an explicit failpoint protocol in the target service.
+RecoveryLab manages a foreground process and forcibly kills it after receiving the operation's successful response. It then starts the same command again. This probes whether an *acknowledged* effect survived that application process crash. When `retry_response` is present, it reads each declared state value **before** resending the same request. It compares the retry reply and reads state again afterward. The first check matters: otherwise a retry that recreates a lost write could make the final count look correct. Without `retry_response`, the original durability-only check still reads state once after restart. RecoveryLab does not kill an external database, simulate a machine power loss or disk failure, or crash at every possible instruction. Crashing at a named line of code would need a failpoint protocol in the target service; [crash-mid-request](#crash-in-the-middle-of-a-request) sweeps the kill across time instead.
 
-The readiness URL must not already return 2xx before the managed process starts. That check prevents a leftover server on the same port from creating a false pass. The command should launch the actual server executable without a shell wrapper, so the process being killed is the process serving requests.
+The readiness URL must not already return 2xx before the managed process starts. That check prevents a leftover server on the same port from creating a false pass. The command and everything it starts are killed together, so the process serving requests dies even when a wrapper launched it.
+
+## Crash in the middle of a request
+
+```text
+start service → ready probe → baseline → POST ──── wait crash_delay ────► kill process
+                                                                              ↓
+                              final state ← retry same request ← state check ← restart
+```
+
+The request is sent on its own goroutine. An `httptrace` hook reports the moment it has been written, and the kill is issued `crash_delay` after that. Timers are only reliable to about a millisecond, so the last two milliseconds of any wait are spent spinning; that is what lets a kill land inside a handler that takes a few hundred microseconds.
+
+Three things can happen to the request. If the connection dies with no reply, the write was never acknowledged, and after the restart each check may show either its old value or its new one. They have to agree, though: with several checks, some at the new value and some at the old is a half-finished write and a `VIOLATION`. A value that is neither is also a `VIOLATION`. If a complete 2xx reply arrives first, the kill came too late to be mid-request; the write is acknowledged and must have survived, as in crash-after-ack. A non-2xx reply is an `ERROR`.
+
+The state is read before the retry for the same reason as in crash-after-ack: a retry that finishes a half-done write would hide it. After the retry, each check must show exactly its expected value. That catches two more bugs: work that committed without its key, so the retry repeats it, and a key that committed without its work, so the retry is told it is done.
+
+In an audit the delay isn't a setting. Earlier checks record how long the service took to start answering (`server_ms` on an attempt). The sweep places its kills evenly from zero up to the median of those, and whenever a kill arrives after the reply it uses that reply time as the new upper end. Without any measurement the delays double: 0, 1 ms, 2 ms, 4 ms. This samples time, not code: it can't target a statement, and a window narrower than the spacing between kills can be missed. The result reports how many kills landed before the reply so a pass can be read for what it covered.
+
+The process is killed with its whole process group on Unix, and with `taskkill /T` on Windows, so a server started through `npm start`, `go run`, or a script dies with its wrapper.
 
 ## Reuse a key with a changed payload
 
@@ -55,7 +73,7 @@ The state check can reveal a second write, while the response check can reveal a
 
 ## Audit
 
-`audit` derives one scenario per failure from a single file and runs them in order: lost response, concurrent duplicates, key reuse, then crash after ack. Settings that only make sense for one scenario stay with that scenario, so `concurrent_response` never reaches the lost-response run and `retry_response` never reaches the burst. Concurrent duplicates run as several independent bursts (five by default) and fail if any burst fails. Each step is still an ordinary experiment with its own run ID, baseline, and verdict.
+`audit` derives one scenario per failure from a single file and runs them in order: lost response, concurrent duplicates, key reuse, crash after ack, then crash mid-request. Settings that only make sense for one scenario stay with that scenario, so `concurrent_response` never reaches the lost-response run and `retry_response` never reaches the burst. Concurrent duplicates run as several independent bursts (five by default) and fail if any burst fails. Each step is still an ordinary experiment with its own run ID, baseline, and verdict.
 
 Key reuse needs a changed body. When the file has no `changed_body`, the audit changes the first number it finds (reading keys alphabetically) by one, or else the first string that doesn't contain `{{run_id}}`, or else the first boolean, and notes what it changed. A body with nothing to change, or a request without an `Idempotency-Key` header, skips the step. The crash step is skipped without a `service` block and otherwise always retries after restart, so it catches both a lost write and a service that forgets its keys.
 

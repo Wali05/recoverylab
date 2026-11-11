@@ -25,6 +25,8 @@ jobs:
       - run: go vet ./...
       - if: runner.os == 'Linux'
         run: go run honnef.co/go/tools/cmd/staticcheck@2026.2.2 ./...
+      - if: runner.os == 'Linux'
+        run: go test ./internal/strictjson -run '^$' -fuzz FuzzRejectDuplicateKeys -fuzztime 15s
       - run: go build ./cmd/recoverylab
       - run: go run ./cmd/recoverylab demo
   # Run the repo's own action the way someone else would, against the

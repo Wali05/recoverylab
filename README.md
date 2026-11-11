@@ -8,7 +8,7 @@
 
 Imagine your API creates an order and sends `200 OK`, but the response disappears on the way back. The client retries. RecoveryLab recreates that moment, then checks whether the order was created once or twice.
 
-It can also send duplicate requests at the same time, restart your service after a process crash, or reuse an idempotency key for a *different* request. Each time, it checks what actually changed in the state your service exposes instead of trusting the HTTP status. When something breaks, it tells you what happened, the likely cause, and what usually fixes it.
+It can also send duplicate requests at the same time, reuse an idempotency key for a *different* request, kill your service right after it answers, or kill it **in the middle of the request** and check that nothing was left half-done. Each time, it checks what actually changed in the state your service exposes instead of trusting the HTTP status. When something breaks, it tells you what happened, the likely cause, and what usually fixes it.
 
 ![RecoveryLab auditing a service with a check-then-write race and explaining the fix](docs/assets/audit.png)
 
@@ -20,21 +20,15 @@ With [Go 1.23+](https://go.dev/dl/) installed, run this from the repository root
 go run ./cmd/recoverylab demo
 ```
 
-The demo starts its own test servers. You don't need Docker, an account, or an API key. For each failure, it shows a server that handles it correctly and one with a deliberate bug:
+The demo starts seven small services on your machine: one that handles retries correctly, and six that each have one deliberate bug. Every service gets all five failures, 63 experiments in about three seconds. You don't need Docker, an account, or an API key.
 
-```text
-A write succeeds, its reply vanishes, and the client retries. (observed/expected)
-Lost response: correct PASS 1/1 | duplicate bug VIOLATION 2/1
-16 requests at once: correct PASS 1/1 | race bug VIOLATION 16/1
-Crash after 2xx: correct PASS 1/1 | early ack bug VIOLATION 0/1
-Demo passed: 3 healthy cases held; 3 injected defects were detected.
-```
+![The demo: seven services, five failures each, and which check catches which bug](docs/assets/demo.png)
 
-![Terminal preview of the six built-in RecoveryLab demo cases](docs/assets/demo.png)
+Read it by row. `race-bug` looks a key up and then writes without a lock, so it survives a lost reply but not 16 copies at once. `torn-write-bug` and `claim-first-bug` pass everything until they are killed mid-request. A `✗` is the *correct* result for a service with a planted bug; the demo fails if RecoveryLab misses one, or flags the correct service.
 
-The numbers are observed/expected state values. `VIOLATION 2/1` means two writes occurred when the scenario expected one. A `VIOLATION` is the *correct* result for a deliberately buggy fixture.
+`recoverylab demo --html report.html` also writes the full report for all seven.
 
-The built-in servers make those bugs easy to reproduce. A race in your own service may take several runs to catch.
+The planted bugs are built to be reproducible. A race in your own service may take several runs to catch.
 
 ## Check your own API
 
@@ -58,20 +52,23 @@ recoverylab audit recoverylab.json
 
 `init` reads the state endpoint, finds the numbers and lists that could count the write, and saves a scenario using the most likely one. Both commands add an `Idempotency-Key` header with a fresh value per run; pass `--no-key` if your API identifies operations another way, and `--header 'Authorization: Bearer …'` for auth.
 
-`audit` takes one scenario, several, or a folder, and runs every failure that applies to each request:
+`audit` takes one scenario, several, or a folder, and runs every failure that applies to each request. On a terminal it shows which check is running:
 
 - **Lost response:** the reply vanishes and the client retries. The retry must succeed and return the same IDs as the lost reply, so `"id"` or `"order_id"` can't change. Fields meant to differ per request, such as `request_id`, are ignored.
 - **Concurrent duplicates:** five bursts of 16 identical requests (`--bursts` changes the count), because a race doesn't show up every time. Besides the count, no copy may get a 5xx. A duplicate that arrives mid-request should get 409, as the [IETF Idempotency-Key draft](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-idempotency-key-header) and [Stripe](https://docs.stripe.com/idempotency) do.
 - **Key reuse:** the same key with one value in the body changed, such as `quantity` going from 1 to 2. Set `changed_body` to choose the change yourself.
 - **Crash after ack:** RecoveryLab kills your process right after a 2xx, restarts it, checks the write survived, and retries. This one needs a [`service` block](#test-a-crash-after-a-successful-response) so RecoveryLab can start your server itself; otherwise it's skipped and the audit tells you why.
+- **Crash mid-request:** the same kill, but while the request is still being handled. RecoveryLab measures how long your service takes to answer and spreads six kills across that time (`--crash-points` changes the count). After each restart the write must be all there or not there at all, and the retry must finish it exactly once. It also needs a `service` block. [More below](#test-a-crash-in-the-middle-of-a-request).
 
 Every finding comes with an explanation written for the person who has to fix it. For a check-then-write race, that's the race itself, plus "make claiming the key atomic: a unique index on the key plus `INSERT ... ON CONFLICT DO NOTHING`". If RecoveryLab couldn't finish (nothing listening, a pointer that doesn't match, a first request that failed), it says so and suggests the next thing to try instead of handing you a stack trace. Each finding also links to [the fixing guide](docs/fixing.md), which shows the whole pattern: one table, one transaction, the replay, and the 409, with PostgreSQL and Go code.
 
-To keep or share the result, add `--html report.html` for a single-file report with the full timeline, `--junit report.xml` for your CI's test tab, `--markdown summary.md` for a pull request comment, or `--badge badge.svg` for your own README:
+To keep or share the result, add `--html report.html` for a single-file report that draws each run as a sequence diagram, `--junit report.xml` for your CI's test tab, `--markdown summary.md` for a pull request comment, or `--badge badge.svg` for your own README:
 
 ![retry safety: 3/3 held](docs/assets/badge-pass.svg) ![retry safety: 1/6 held](docs/assets/badge-fail.svg)
 
 They all work with `run` too, and with several endpoints they combine into one report.
+
+![The HTML report for a service that saves an order and its charge separately, killed between the two](docs/assets/report.png)
 
 ## Tested against real projects
 
@@ -121,6 +118,7 @@ If you'd rather build it yourself, run `go build -o recoverylab ./cmd/recoveryla
 | `lost-response` | Lets the service process a request, drops the reply, then sends the same request again. | Whether a retry repeats the side effect and whether the client gets a successful reply. |
 | `concurrent-duplicates` | Sends 2–64 copies of the same request together. | Whether this burst caused a duplicate side effect or returned a response code outside the optional list you allow. |
 | `crash-after-ack` | Starts your service, sends a request, kills its process after a 2xx response, then restarts it. It can retry the same request after restart. | Whether the acknowledged effect survived, and whether the retry keeps the same result without a second effect. |
+| `crash-mid-request` | Starts your service, sends a request, and kills the process a set time later, before it has answered. Restarts it, reads state, then retries. | Whether a crash can leave the write half-done, and whether the retry completes it exactly once. |
 | `key-reuse` | Sends one request, changes its JSON body, and sends it again with the same idempotency key. | Whether the changed request is rejected with your declared 4xx code and leaves no second effect. |
 
 RecoveryLab reads your state endpoint before and after the experiment. For each check, it compares the observed integer with `baseline + expected_delta`. A crash scenario with a retry also checks state before that retry. Lost-response retries, and post-restart retries when enabled, require a successful (2xx) reply by default. It can only judge the state and reply you expose; a passing run is not proof that every possible side effect is safe.
@@ -164,7 +162,7 @@ go run ./cmd/recoverylab run scenario.json
 
 `validate` also rejects unknown settings and duplicate JSON keys, including keys nested in the request body, so an overwritten value cannot quietly change the experiment.
 
-`{{run_id}}` is replaced once per run, so the original request and retry share a key, while the next run gets a fresh one. Put it in the idempotency key, URL, or JSON body wherever your service identifies an operation. Make sure the state endpoint measures the thing you care about: an order count can reveal duplicate orders, while an HTTP 200 alone cannot.
+`{{run_id}}` is replaced once per run, so the original request and retry share a key, while the next run gets a fresh one. Put it in the idempotency key, URL, or JSON body wherever your service identifies an operation. If your API only accepts a UUID as a key, use `{{uuid}}` instead: it is a version 4 UUID derived from the run ID, so it is also the same for the request and its retry. The key header can be `Idempotency-Key`, `X-Idempotency-Key`, or `Idempotency_Key`. Make sure the state endpoint measures the thing you care about: an order count can reveal duplicate orders, while an HTTP 200 alone cannot.
 
 The `retry_response` block compares a stable value in the original and retry replies. In this example, both replies must contain the same `/order_id`. Remove that block if your API doesn't return JSON with an order ID; the default 2xx retry check still runs. A different 2xx reply is allowed, such as `201 Created` followed by `200 OK`, as long as the selected values match. If your API contract deliberately returns a non-2xx code for duplicates, set `"allowed_statuses": [409]` inside `retry_response` to check for that code instead. Response bodies used for comparison are limited to 1 MiB and are not written to reports.
 
@@ -217,7 +215,7 @@ This scenario needs a foreground service that RecoveryLab can start and kill. In
 }
 ```
 
-The command must run the server process directly and store its data outside the process. Relative command paths use `service.working_dir`, which defaults to the scenario file's directory. Only run scenario files you trust: this command executes on your computer.
+The service must store its data outside the process. The command runs without a shell, and RecoveryLab kills it together with everything it started, so `["npm", "start"]`, `["go", "run", "."]`, or a script that launches the server all work. Relative command paths use `service.working_dir`, which defaults to the scenario file's directory. Only run scenario files you trust: this command executes on your computer. Ctrl-C stops the experiment and the service with it.
 
 RecoveryLab waits for `ready_url`, reads the baseline, sends the operation, kills the process after a 2xx response, restarts it, and reads state again. Use an endpoint whose 2xx response means the write should already be durable.
 
@@ -229,7 +227,42 @@ recoverylab run examples/crash-retry.json
 
 The [PocketBase check](docs/crash-retry-check.md) shows a third-party service that duplicates the write on retry. The [SQLite-backed idempotency check](docs/persistent-idempotency-check.md) shows a service that keeps one write and the same reply across a process restart.
 
-This tests a **process crash after acknowledgement**; it does not crash a separate database, simulate a power loss, or choose a crash point inside your handler. See [design notes](docs/design.md) for the precise timeline.
+This tests a **process crash after acknowledgement**; it does not crash a separate database or simulate a power loss. See [design notes](docs/design.md) for the precise timeline.
+
+### Test a crash in the middle of a request
+
+A service can survive every test above and still break when it dies part-way through a write. Two bugs only show up there. One is an order saved without its charge, because the two are written separately. The other is an idempotency key saved before the work it stands for: after the restart the service finds the key and tells the retry the work is done.
+
+`audit` runs this check whenever the scenario has a `service` block. To see a half-finished write it needs to watch more than one effect, so give it a check for each:
+
+```json
+{
+  "checks": [
+    { "name": "orders", "url": "http://127.0.0.1:8080/state", "pointer": "/order_count", "expected_delta": 1 },
+    { "name": "charges", "url": "http://127.0.0.1:8080/state", "pointer": "/charge_count", "expected_delta": 1 }
+  ]
+}
+```
+
+For each kill, RecoveryLab sends the request, waits a set time after it has been written, and kills the process. After the restart, and **before** retrying, every check must show either the old value or the new one, and they must agree: orders up by one with charges unchanged is a `VIOLATION`. Then it retries, and the final values must be exactly one write. If your service answers before the kill arrives, that write was acknowledged and has to have survived.
+
+An audit picks the kill times itself. It measures how long the service takes to answer in the earlier checks, spreads the kills from zero up to that time, and moves the remaining kills earlier whenever one arrives after the reply. Short waits spin instead of sleeping, so a kill can land inside a handler that takes a fraction of a millisecond. The result says how many kills landed before the reply, and the HTML report lists each one:
+
+```text
+  ✓ PASS       Crash mid-request      6 of 6 runs held. The service was killed at 6
+                                      different moments, 5 of them mid-request. The
+                                      write was never left half-done, and every retry
+                                      finished it exactly once.
+                                      6 kills, 0 to 0.8 ms in; 5 landed before the reply
+```
+
+With `run`, set the time yourself with `"scenario": "crash-mid-request"` and `"crash_delay": "5ms"`. Try the [working example](examples/crash-mid-request.json) with an installed `recoverylab` binary:
+
+```sh
+recoverylab run examples/crash-mid-request.json
+```
+
+This is a sweep over time, not over lines of code. It can't aim at a particular statement in your handler, and a window narrower than the gap between two kills can be missed; more `--crash-points` narrows that gap. It kills the service process only, not a separate database.
 
 ## Read the result
 
@@ -245,7 +278,7 @@ Color output turns off when you pipe it or set `NO_COLOR`. For a machine-readabl
 
 When a crash scenario includes a post-restart retry, the JSON report has both `after_restart_checks` (before retry) and `checks` (after retry). A mismatch in either set is a `VIOLATION`.
 
-RecoveryLab accepts loopback HTTP(S) URLs only and does not follow redirects. Its current scope is one operation and up to 16 named integer checks per run. Those checks can still miss effects that your state endpoints do not show.
+RecoveryLab accepts loopback HTTP(S) URLs only and does not follow redirects. A JSON body is sent as `application/json` unless the scenario sets a `Content-Type`. Its current scope is one operation and up to 16 named integer checks per run. Those checks can still miss effects that your state endpoints do not show.
 
 The `key-reuse` scenario checks the exact rejection status and the declared state count. It does not compare the rejection body or determine whether a service's fingerprint covers every relevant field. It sends an intentionally invalid second request to test how the service handles accidental key reuse.
 
@@ -268,7 +301,7 @@ The repo is also a GitHub Action. Start your API in the job however you normally
     path: recoverylab-report.html
 ```
 
-Pinned to a release, the action downloads that release's binary and checks its SHA-256 sum, so it starts in seconds. `@main` or a commit SHA builds from source instead. The job fails on a violation, the job page gets a summary table with the explanations, and the uploaded HTML report has the full timeline. Inputs: `command` (`audit` or `run`), `bursts`, `repeat`, `html`, `junit`, `badge`, and `summary`. The `status` output is `PASS`, `VIOLATION`, or `ERROR`. RecoveryLab's own CI [runs the action](.github/workflows/ci.yml) against the built-in fixture on every push, and runs `discover` against the fixture's OpenAPI document.
+Pinned to a release, the action downloads that release's binary and checks its SHA-256 sum, so it starts in seconds. `@main` or a commit SHA builds from source instead. The job fails on a violation, the job page gets a summary table with the explanations, and the uploaded HTML report has the full timeline. Inputs: `command` (`audit` or `run`), `bursts`, `crash-points`, `repeat`, `html`, `junit`, `badge`, and `summary`. The `status` output is `PASS`, `VIOLATION`, or `ERROR`. RecoveryLab's own CI [runs the action](.github/workflows/ci.yml) against the built-in fixture on every push, and runs `discover` against the fixture's OpenAPI document.
 
 Outside GitHub, install the binary and run `recoverylab audit --junit report.xml scenario.json`; exit codes are listed below.
 
@@ -277,6 +310,7 @@ Outside GitHub, install the binary and run `recoverylab audit --junit report.xml
 ```sh
 go test ./...
 go vet ./...
+go test ./internal/strictjson -fuzz FuzzRejectDuplicateKeys -fuzztime 20s
 ```
 
 The project uses only Go's standard library. Code lives in `internal/`: `engine` injects the faults, `audit` plans and runs a full audit, `explain` turns a report into plain language, `openapi` reads OpenAPI documents for `discover`, and `report` writes HTML, JUnit, Markdown, and badges. Changes are listed in the [changelog](CHANGELOG.md). See [CONTRIBUTING.md](CONTRIBUTING.md) to work on it and [SECURITY.md](SECURITY.md) to report a security problem. Tagged builds produce Windows, Linux, and macOS binaries for GitHub Releases; see the [release workflow](.github/workflows/release.yml).

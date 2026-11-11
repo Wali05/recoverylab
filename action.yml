@@ -15,6 +15,9 @@ inputs:
   bursts:
     description: Concurrent bursts for audit. Races don't show up every time, so more bursts catch more.
     default: "5"
+  crash-points:
+    description: Times audit kills a managed service mid-request, each at a different moment. 0 skips the check.
+    default: "6"
   repeat:
     description: Repeats for run.
     default: "1"
@@ -67,6 +70,7 @@ runs:
         INPUT_SCENARIO: ${{ inputs.scenario }}
         INPUT_COMMAND: ${{ inputs.command }}
         INPUT_BURSTS: ${{ inputs.bursts }}
+        INPUT_CRASH_POINTS: ${{ inputs.crash-points }}
         INPUT_REPEAT: ${{ inputs.repeat }}
         INPUT_HTML: ${{ inputs.html }}
         INPUT_JUNIT: ${{ inputs.junit }}
@@ -79,7 +83,7 @@ runs:
         if [[ "$INPUT_SUMMARY" == true ]]; then args+=(--markdown "$GITHUB_STEP_SUMMARY"); fi
         if [[ -n "$INPUT_BADGE" ]]; then args+=(--badge "$INPUT_BADGE"); fi
         case "$INPUT_COMMAND" in
-          audit) args+=(--bursts "$INPUT_BURSTS") ;;
+          audit) args+=(--bursts "$INPUT_BURSTS" --crash-points "$INPUT_CRASH_POINTS") ;;
           run) args+=(--repeat "$INPUT_REPEAT") ;;
           *) echo "::error::command must be audit or run"; exit 2 ;;
         esac

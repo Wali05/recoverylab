@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Wali05/recoverylab/main/docs/scenario.schema.json",
+  "name": "crash-mid-request-leaves-nothing-half-done",
+  "scenario": "crash-mid-request",
+  "crash_delay": "200us",
+  "timeout": "20s",
+  "service": {
+    "command": [
+      "recoverylab",
+      "fixture",
+      "--listen", "127.0.0.1:18096",
+      "--mode", "correct",
+      "--journal", ".recoverylab/crash-mid-request.jsonl"
+    ],
+    "working_dir": "..",
+    "ready_url": "http://127.0.0.1:18096/health"
+  },
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:18096/operations",
+    "headers": { "Idempotency-Key": "{{uuid}}" },
+    "body": { "amount": 1 }
+  },
+  "checks": [
+    { "name": "operations", "url": "http://127.0.0.1:18096/state", "pointer": "/count", "expected_delta": 1 },
+    { "name": "charges", "url": "http://127.0.0.1:18096/state", "pointer": "/charges", "expected_delta": 1 }
+  ]
+}

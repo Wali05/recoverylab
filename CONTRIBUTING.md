@@ -13,7 +13,7 @@ go vet ./...
 go run ./cmd/recoverylab demo
 ```
 
-CI also runs `staticcheck`, the action against the built-in fixture, and `discover` followed by `audit`.
+CI also runs `staticcheck`, a short fuzz run, the action against the built-in fixture, and `discover` followed by `audit`. The demo is an end-to-end test too: it fails if any of its 35 verdicts is wrong.
 
 - `internal/engine` injects the faults and decides each verdict.
 - `internal/audit` turns one scenario into the full set of checks.
